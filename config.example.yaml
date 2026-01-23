@@ -1,0 +1,19 @@
+paths:
+  yt_dlp: "C:\\path\\to\\yt-dlp.exe"
+  ffmpeg: "C:\\path\\to\\ffmpeg.exe"
+  ffmpeg_dir: "C:\\path\\to\\ffmpeg\\bin"
+
+  movies_dir: "C:\\Videos\\films"
+  serials_dir: "C:\\Videos\\serials"
+  log_file: "C:\\Videos\\download.log"
+
+download:
+  max_parallel: 1
+  retries: 3
+  retry_delay_sec: 5
+
+yt_dlp:
+  concurrent_fragments: 16
+  retries: 10
+  fragment_retries: 10
+  container: "mp4"
