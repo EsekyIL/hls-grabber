@@ -30,7 +30,7 @@ No scraping, no website automation — only a controlled download pipeline.
 
 ```
 Videos/
-└── films/
+└── Films/
     └── Movie Name.mp4
 ```
 
@@ -38,12 +38,24 @@ Videos/
 
 ```
 Videos/
-└── serials/
+└── Serials/
     └── Series Name/
         └── Season 1/
             ├── S1E01.mp4
             ├── S1E02.mp4
             └── S1E03.mp4
+```
+
+### List
+
+**ini** file should be like this - 1 line = one link
+
+```
+Videos/
+└── List/
+    ├── naruto.ini
+    ├── bleach.ini
+    └── one-piece.ini
 ```
 
 This structure is optimal for **local playback** and can be used by media servers if needed later.
