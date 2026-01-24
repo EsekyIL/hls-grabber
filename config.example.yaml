@@ -1,11 +1,11 @@
 paths:
-  yt_dlp: "C:\\path\\to\\yt-dlp.exe"
-  ffmpeg: "C:\\path\\to\\ffmpeg.exe"
-  ffmpeg_dir: "C:\\path\\to\\ffmpeg\\bin"
+  yt_dlp: "C:/path/to/yt-dlp.exe"
+  ffmpeg: "C:/path/to/ffmpeg.exe"
+  ffmpeg_dir: "C:/path/to/ffmpeg/bin"
 
-  movies_dir: "C:\\Videos\\films"
-  serials_dir: "C:\\Videos\\serials"
-  log_file: "C:\\Videos\\download.log"
+  movies_dir: "C:/Videos/Films"
+  serials_dir: "C:/Videos/Serials"
+  links_dir: "C/Videos/Links"
 
 download:
   max_parallel: 1

@@ -31,6 +31,7 @@ type Config struct {
 		MoviesDir  string `yaml:"movies_dir"`
 		SerialsDir string `yaml:"serials_dir"`
 		LogFile    string `yaml:"log_file"`
+		LinksDir   string `yaml:"links_dir"`
 	} `yaml:"paths"`
 
 	Download struct {
@@ -57,6 +58,11 @@ var (
 	wg     sync.WaitGroup
 )
 
+type AppLogger struct {
+	Info  *log.Logger
+	Error *log.Logger
+}
+
 //
 // ================= INIT =================
 //
@@ -73,23 +79,72 @@ func loadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-func initLogger(path string) (*log.Logger, *os.File) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+func exeDir() string {
+	exe, err := os.Executable()
 	if err != nil {
-		panic("cannot open log file")
+		return "."
 	}
-	mw := io.MultiWriter(os.Stdout, f)
-	return log.New(mw, "", log.Ldate|log.Ltime|log.Lmicroseconds), f
+	return filepath.Dir(exe)
 }
 
-func setupGracefulShutdown(logger *log.Logger) context.Context {
+func initLogger(logPath string) (*AppLogger, func()) {
+	baseDir := exeDir()
+
+	if logPath == "" {
+		logPath = filepath.Join(baseDir, "download.log")
+	}
+	errPath := filepath.Join(baseDir, "errors.log")
+
+	_ = os.MkdirAll(filepath.Dir(logPath), 0755)
+
+	open := func(p string) *os.File {
+		f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Printf("LOGGER ERROR: cannot open %s: %v\n", p, err)
+			return nil
+		}
+		return f
+	}
+
+	logFile := open(logPath)
+	errFile := open(errPath)
+
+	var infoOut io.Writer = os.Stdout
+	var errOut io.Writer = os.Stdout
+
+	if logFile != nil {
+		infoOut = io.MultiWriter(os.Stdout, logFile)
+	}
+	if errFile != nil {
+		errOut = io.MultiWriter(os.Stdout, errFile)
+	}
+
+	infoLogger := log.New(infoOut, "INFO  ", log.Ldate|log.Ltime|log.Lmicroseconds)
+	errLogger := log.New(errOut, "ERROR ", log.Ldate|log.Ltime|log.Lmicroseconds)
+
+	cleanup := func() {
+		if logFile != nil {
+			logFile.Close()
+		}
+		if errFile != nil {
+			errFile.Close()
+		}
+	}
+
+	return &AppLogger{
+		Info:  infoLogger,
+		Error: errLogger,
+	}, cleanup
+}
+
+func setupGracefulShutdown(logger *AppLogger) context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
 		<-sig
-		logger.Println("Shutdown signal received")
+		logger.Error.Println("CTRL+C received, shutting down...")
 		cancel()
 	}()
 	return ctx
@@ -129,15 +184,32 @@ func sanitizeDirName(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func retry(attempts int, delay time.Duration, fn func() error, logger *log.Logger) error {
+func retry(
+	ctx context.Context,
+	attempts int,
+	delay time.Duration,
+	fn func() error,
+	logger *log.Logger,
+) error {
 	var err error
+
 	for i := 1; i <= attempts; i++ {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		err = fn()
 		if err == nil {
 			return nil
 		}
+
 		logger.Printf("Retry %d/%d failed: %v\n", i, attempts, err)
-		time.Sleep(delay)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
 	}
 	return err
 }
@@ -186,23 +258,25 @@ func runYTDLP(ctx context.Context, cfg *Config, url, workDir string) error {
 	return cmd.Run()
 }
 
-func download(ctx context.Context, cfg *Config, logger *log.Logger, url, final, workDir string) {
+func download(ctx context.Context, cfg *Config, logger *AppLogger, url, final, workDir string) {
 	err := retry(
+		ctx,
 		cfg.Download.Retries,
 		time.Duration(cfg.Download.RetryDelaySec)*time.Second,
 		func() error {
 			return runYTDLP(ctx, cfg, url, workDir)
 		},
-		logger,
+		logger.Error,
 	)
+
 	if err != nil {
-		logger.Printf("FAILED: %s\n", url)
+		logger.Error.Printf("FAILED: %s\n", url)
 		return
 	}
 
 	files, _ := filepath.Glob(filepath.Join(workDir, "temp_*.mp4"))
 	if len(files) == 0 {
-		logger.Println("No temp files found")
+		logger.Info.Println("No temp files found")
 		return
 	}
 
@@ -210,11 +284,11 @@ func download(ctx context.Context, cfg *Config, logger *log.Logger, url, final, 
 	_ = os.Remove(files[0])
 }
 
-func downloadAsync(ctx context.Context, cfg *Config, logger *log.Logger, url, output, workDir string) {
+func downloadAsync(ctx context.Context, cfg *Config, logger *AppLogger, url, output, workDir string) {
 	select {
-	case sem <- struct{}{}:
 	case <-ctx.Done():
 		return
+	case sem <- struct{}{}:
 	}
 
 	wg.Add(1)
@@ -222,9 +296,9 @@ func downloadAsync(ctx context.Context, cfg *Config, logger *log.Logger, url, ou
 		defer wg.Done()
 		defer func() { <-sem }()
 
-		logger.Printf("START: %s\n", output)
+		logger.Info.Printf("START: %s\n", output)
 		download(ctx, cfg, logger, url, output, workDir)
-		logger.Printf("DONE: %s\n", output)
+		logger.Info.Printf("DONE: %s\n", output)
 	}()
 }
 
@@ -232,7 +306,7 @@ func downloadAsync(ctx context.Context, cfg *Config, logger *log.Logger, url, ou
 // ================= FLOWS =================
 //
 
-func movieFlow(ctx context.Context, cfg *Config, logger *log.Logger) {
+func movieFlow(ctx context.Context, cfg *Config, logger *AppLogger) {
 	url := readLine("Paste video URL: ")
 	name := sanitizeFilename(readLine("Paste movie name: "))
 
@@ -242,18 +316,26 @@ func movieFlow(ctx context.Context, cfg *Config, logger *log.Logger) {
 	downloadAsync(ctx, cfg, logger, url, out, cfg.Paths.MoviesDir)
 }
 
-func seriesFlow(ctx context.Context, cfg *Config, logger *log.Logger) {
-	listDir := readLine("Paste folder path with url_list.ini: ")
+func seriesFlow(ctx context.Context, cfg *Config, logger *AppLogger) {
+	listDir := cfg.Paths.LinksDir
+	if listDir == "" {
+		logger.Error.Println("links_dir is not set in config")
+		return
+	}
+	listName := readLine("Paste list name (ex: url_list.ini): ")
+
+	listFile := filepath.Join(listDir, listName)
+	f, err := os.Open(listFile)
+	if err != nil {
+		logger.Error.Println(listName, "NOT FOUND")
+		return
+
+	}
+	defer f.Close()
+
 	rawName := readLine("Paste series name: ")
 	seriesName := sanitizeDirName(rawName)
 	season := readLine("Paste season number: ")
-
-	listFile := filepath.Join(listDir, "url_list.ini")
-	f, err := os.Open(listFile)
-	if err != nil {
-		logger.Fatal("url_list.ini NOT FOUND")
-	}
-	defer f.Close()
 
 	base := filepath.Join(cfg.Paths.SerialsDir, seriesName, "Season "+season)
 	_ = os.MkdirAll(base, 0755)
@@ -273,7 +355,7 @@ func seriesFlow(ctx context.Context, cfg *Config, logger *log.Logger) {
 		fullPath := filepath.Join(base, filename)
 
 		if _, err := os.Stat(fullPath); err == nil {
-			logger.Printf("SKIP (exists): %s\n", fullPath)
+			logger.Info.Printf("SKIP (exists): %s\n", fullPath)
 			ep++
 			continue
 		}
@@ -293,8 +375,8 @@ func main() {
 		panic(err)
 	}
 
-	logger, logFile := initLogger(cfg.Paths.LogFile)
-	defer logFile.Close()
+	logger, closeLogs := initLogger(cfg.Paths.LogFile)
+	defer closeLogs()
 
 	sem = make(chan struct{}, cfg.Download.MaxParallel)
 
@@ -307,7 +389,7 @@ func main() {
 		seriesFlow(ctx, cfg, logger)
 	}
 
-	logger.Println("Waiting for active jobs...")
+	logger.Info.Println("Waiting for active jobs...")
 	wg.Wait()
-	logger.Println("EXIT")
+	logger.Info.Println("EXIT")
 }
