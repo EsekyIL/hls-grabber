@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -76,7 +78,50 @@ func loadConfig(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+	if err := validateConfig(&cfg); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+func validateConfig(cfg *Config) error {
+	if strings.TrimSpace(cfg.Paths.YTDLP) == "" {
+		return errors.New("paths.yt_dlp is required")
+	}
+	if strings.TrimSpace(cfg.Paths.FFMPEG) == "" {
+		return errors.New("paths.ffmpeg is required")
+	}
+	if strings.TrimSpace(cfg.Paths.FFMPEG_DIR) == "" {
+		return errors.New("paths.ffmpeg_dir is required")
+	}
+	if strings.TrimSpace(cfg.Paths.MoviesDir) == "" {
+		return errors.New("paths.movies_dir is required")
+	}
+	if strings.TrimSpace(cfg.Paths.SerialsDir) == "" {
+		return errors.New("paths.serials_dir is required")
+	}
+	if cfg.Download.MaxParallel <= 0 {
+		return errors.New("download.max_parallel must be > 0")
+	}
+	if cfg.Download.Retries <= 0 {
+		return errors.New("download.retries must be > 0")
+	}
+	if cfg.Download.RetryDelaySec < 0 {
+		return errors.New("download.retry_delay_sec must be >= 0")
+	}
+	if cfg.YTDLP.ConcurrentFragments <= 0 {
+		return errors.New("yt_dlp.concurrent_fragments must be > 0")
+	}
+	if cfg.YTDLP.Retries < 0 {
+		return errors.New("yt_dlp.retries must be >= 0")
+	}
+	if cfg.YTDLP.FragmentRetries < 0 {
+		return errors.New("yt_dlp.fragment_retries must be >= 0")
+	}
+	if strings.TrimSpace(cfg.YTDLP.Container) == "" {
+		return errors.New("yt_dlp.container is required")
+	}
+	return nil
 }
 
 func exeDir() string {
@@ -192,6 +237,9 @@ func retry(
 	logger *log.Logger,
 ) error {
 	var err error
+	if attempts < 1 {
+		attempts = 1
+	}
 
 	for i := 1; i <= attempts; i++ {
 		if ctx.Err() != nil {
@@ -201,6 +249,10 @@ func retry(
 		err = fn()
 		if err == nil {
 			return nil
+		}
+
+		if i == attempts {
+			break
 		}
 
 		logger.Printf("Retry %d/%d failed: %v\n", i, attempts, err)
@@ -258,30 +310,74 @@ func runYTDLP(ctx context.Context, cfg *Config, url, workDir string) error {
 	return cmd.Run()
 }
 
-func download(ctx context.Context, cfg *Config, logger *AppLogger, url, final, workDir string) {
-	err := retry(
+func createTempWorkDir(workDir string) (string, error) {
+	parent := filepath.Join(os.TempDir(), "hls-grabber")
+	if err := os.MkdirAll(parent, 0755); err != nil {
+		return "", err
+	}
+	return os.MkdirTemp(parent, "job-")
+}
+
+func findDownloadedFile(workDir, container string) (string, error) {
+	ext := strings.TrimPrefix(strings.TrimSpace(container), ".")
+	files, err := filepath.Glob(filepath.Join(workDir, "temp_*."+ext))
+	if err != nil {
+		return "", err
+	}
+	if len(files) == 0 {
+		files, err = filepath.Glob(filepath.Join(workDir, "temp_*.*"))
+		if err != nil {
+			return "", err
+		}
+	}
+	if len(files) == 0 {
+		return "", errors.New("no temp files found")
+	}
+	sort.Strings(files)
+	return files[0], nil
+}
+
+func remux(cfg *Config, input, final string) error {
+	if err := os.MkdirAll(filepath.Dir(final), 0755); err != nil {
+		return err
+	}
+	cmd := exec.Command(cfg.Paths.FFMPEG, "-y", "-i", input, "-c", "copy", final)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func download(ctx context.Context, cfg *Config, logger *AppLogger, url, final, workDir string) error {
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return err
+	}
+
+	tempDir, err := createTempWorkDir(workDir)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tempDir)
+
+	err = retry(
 		ctx,
 		cfg.Download.Retries,
 		time.Duration(cfg.Download.RetryDelaySec)*time.Second,
 		func() error {
-			return runYTDLP(ctx, cfg, url, workDir)
+			return runYTDLP(ctx, cfg, url, tempDir)
 		},
 		logger.Error,
 	)
 
 	if err != nil {
-		logger.Error.Printf("FAILED: %s\n", url)
-		return
+		return err
 	}
 
-	files, _ := filepath.Glob(filepath.Join(workDir, "temp_*.mp4"))
-	if len(files) == 0 {
-		logger.Info.Println("No temp files found")
-		return
+	input, err := findDownloadedFile(tempDir, cfg.YTDLP.Container)
+	if err != nil {
+		return err
 	}
 
-	exec.Command(cfg.Paths.FFMPEG, "-y", "-i", files[0], "-c", "copy", final).Run()
-	_ = os.Remove(files[0])
+	return remux(cfg, input, final)
 }
 
 func downloadAsync(ctx context.Context, cfg *Config, logger *AppLogger, url, output, workDir string) {
@@ -297,7 +393,10 @@ func downloadAsync(ctx context.Context, cfg *Config, logger *AppLogger, url, out
 		defer func() { <-sem }()
 
 		logger.Info.Printf("START: %s\n", output)
-		download(ctx, cfg, logger, url, output, workDir)
+		if err := download(ctx, cfg, logger, url, output, workDir); err != nil {
+			logger.Error.Printf("FAILED: %s: %v\n", output, err)
+			return
+		}
 		logger.Info.Printf("DONE: %s\n", output)
 	}()
 }
@@ -349,7 +448,10 @@ func seriesFlow(ctx context.Context, cfg *Config, logger *AppLogger) {
 			break
 		}
 
-		url := scanner.Text()
+		url := strings.TrimSpace(scanner.Text())
+		if url == "" || strings.HasPrefix(url, "#") || strings.HasPrefix(url, ";") {
+			continue
+		}
 		epNum := fmt.Sprintf("%02d", ep)
 		filename := fmt.Sprintf("S%sE%s.%s", season, epNum, cfg.YTDLP.Container)
 		fullPath := filepath.Join(base, filename)
@@ -362,6 +464,9 @@ func seriesFlow(ctx context.Context, cfg *Config, logger *AppLogger) {
 
 		downloadAsync(ctx, cfg, logger, url, fullPath, base)
 		ep++
+	}
+	if err := scanner.Err(); err != nil {
+		logger.Error.Printf("cannot read list: %v\n", err)
 	}
 }
 

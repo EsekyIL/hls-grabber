@@ -1,0 +1,9 @@
+config.yaml
+download.log
+errors.log
+*.exe
+ffmpeg/
+
+node_modules/
+frontend/dist/
+build/bin/

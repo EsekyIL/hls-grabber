@@ -5,7 +5,7 @@ paths:
 
   movies_dir: "C:/Videos/Films"
   serials_dir: "C:/Videos/Serials"
-  links_dir: "C/Videos/Links"
+  links_dir: "C:/Videos/Links"
 
 download:
   max_parallel: 1
