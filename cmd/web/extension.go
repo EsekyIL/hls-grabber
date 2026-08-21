@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,7 +16,28 @@ import (
 	extensionassets "hls-grabber/browser-extension"
 )
 
-var extensionFileNames = []string{"manifest.json", "service-worker.js", "content-script.js", "popup.html", "popup.js"}
+// extensionFileNames — усе, що треба покласти в теку для Firefox.
+//
+// Береться з вбудованої файлової системи, а не пишеться руками. Раніше це
+// був літерал, і він відстав від дійсності: у go:embed з'явились cdn-api.js
+// та stay-awake.js, а сюди їх ніхто не дописав. Маніфест вимагав cdn-api.js,
+// на диску його не було — і Firefox мовчки відмовлявся впроваджувати ВЕСЬ
+// набір content scripts. Ззовні це виглядало як німа сторінка: фон працює,
+// попап працює, а на будь-якій сторінці «Receiving end does not exist».
+func extensionFileNames() ([]string, error) {
+	entries, err := fs.ReadDir(extensionassets.Files, ".")
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	return names, nil
+}
 
 type bridgeStatusData struct {
 	Connected       bool      `json:"connected"`
@@ -100,7 +122,11 @@ func exportExtension() (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	for _, name := range extensionFileNames {
+	names, err := extensionFileNames()
+	if err != nil {
+		return "", err
+	}
+	for _, name := range names {
 		data, err := extensionassets.Files.ReadFile(name)
 		if err != nil {
 			return "", err
