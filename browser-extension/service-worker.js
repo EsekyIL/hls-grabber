@@ -159,16 +159,48 @@ async function report(port, payload) {
 // tabs.create повертається одразу, а скрипт вставляється аж на
 // document_idle: без цього очікування перше ж повідомлення полетіло б у
 // порожнечу, і команда мовчки нічого не зробила б.
-async function waitForContentScript(tabId, timeoutMs = 30000) {
+//
+// На половині шляху пробуємо впровадити скрипт САМІ. Оголошення в маніфесті
+// не спрацьовує там, де сторінка так і не стала звичайною: перенаправлення,
+// сторінка помилки мережі, перевірка «ти не робот». Явне впровадження або
+// пробиває це, або чесно каже, що не змогло.
+async function waitForContentScript(tabId, timeoutMs = 40000) {
   const deadline = Date.now() + timeoutMs;
+  let injected = false;
+  let lastError = "";
+
   while (Date.now() < deadline) {
     try {
       const catalog = await chrome.tabs.sendMessage(tabId, {type: "get-catalog"});
       if (catalog) return catalog;
-    } catch (_) {}
+      lastError = "порожня відповідь від сторінки";
+    } catch (error) {
+      lastError = error?.message || String(error);
+    }
+
+    if (!injected && Date.now() > deadline - timeoutMs / 2) {
+      injected = true;
+      try {
+        await chrome.scripting.executeScript({
+          target: {tabId},
+          files: ["cdn-api.js", "content-script.js"],
+        });
+      } catch (error) {
+        lastError = `впровадження не вдалось: ${error?.message || error}`;
+      }
+    }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
-  throw new Error("сторінка не відповіла вчасно");
+
+  // Помилка має називати причину, а не лише факт. Досі тут було голе
+  // «сторінка не відповіла вчасно», і воно однаково звучало і для збою
+  // мережі, і для перевірки «ти не робот», і для чужої вкладки.
+  let where = "";
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    where = ` Вкладка: ${tab.status || "?"}, ${tab.url || "адреса невідома"}.`;
+  } catch (_) {}
+  throw new Error(`сторінка не відповіла за ${Math.round(timeoutMs / 1000)} с.${where} ${lastError}`.trim());
 }
 
 async function runCommand(command, port) {

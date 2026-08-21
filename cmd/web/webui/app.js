@@ -180,8 +180,13 @@ function renderProbe(session) {
   $("#probe-start").disabled = running;
   $("#probe-scan").disabled = running || !$$("#probe-voices input:checked").length;
 
+  // Помилку кладемо окремим рядком, а не в підпис стану праворуч: вона тепер
+  // називає причину («вкладка: complete, about:neterror…»), і в тісному
+  // куточку такий текст стискав би назву до трьох літер.
+  $("#probe-error").classList.toggle("hidden", !session?.error);
   if (session?.error) {
-    $("#probe-state").textContent = session.error;
+    $("#probe-error").textContent = session.error;
+    $("#probe-state").textContent = "Не вдалось";
     return;
   }
   $("#probe-state").textContent = {

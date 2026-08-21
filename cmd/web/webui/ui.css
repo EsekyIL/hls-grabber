@@ -500,6 +500,18 @@ details.advanced[open] > summary::before { transform: rotate(90deg); }
 .series-probe__head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.625rem; }
 .series-probe__head strong { font-size: 0.875rem; }
 .series-probe__head span { font-size: 0.75rem; color: var(--c-text-low); }
+.series-probe__error {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--error);
+  word-break: break-word;
+}
+
 .series-probe__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.625rem; margin-top: 0.875rem; }
 
 .voice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.375rem; }
