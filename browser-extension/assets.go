@@ -7,4 +7,4 @@ import "embed"
 //go:embed manifest.json service-worker.js content-script.js cdn-api.js popup.html popup.js stay-awake.js
 var Files embed.FS
 
-const Version = "1.6.0"
+const Version = "1.6.1"

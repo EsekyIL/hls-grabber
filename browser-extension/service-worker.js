@@ -59,17 +59,6 @@ async function sendURL(url, tabId, context) {
 
   try {
     await heartbeat();
-
-// Опитуємо чергу команд разом із серцебиттям. Alarms, а не setInterval:
-// таймери фонової сторінки вмирають разом із її вивантаженням, а будильник
-// її ж і будить.
-chrome.alarms?.create("bridge-poll", {periodInMinutes: 0.25});
-chrome.alarms?.onAlarm.addListener(alarm => {
-  if (alarm.name !== "bridge-poll") return;
-  heartbeat();
-  pollCommands();
-});
-pollCommands();
     let tab = {}, metadata = context;
     if (tabId >= 0) {
       try { tab = await chrome.tabs.get(tabId); } catch (_) {}
@@ -331,4 +320,25 @@ chrome.tabs.onRemoved.addListener(tabId => {
   chrome.storage.session.remove("ctx:" + tabId).catch(() => {});
 });
 
+// Будильник — єдине, що тримає міст живим, коли жодної сторінки сайту не
+// відкрито. Він і серцебиття шле, і чергу команд опитує.
+//
+// Цей блок був помилково вставлений УСЕРЕДИНУ sendURL: заміна пішла на
+// перший рядок «heartbeat();» у файлі, а ним виявився await усередині
+// відправки посилання. Синтаксично все лишалось правильним, тож ані
+// збірка, ані перевірка синтаксису нічого не помітили — а насправді
+// будильник створювався лише після перехоплення плейлиста. Без відкритої
+// сторінки панель через 75 секунд бачила «Firefox не підключений», а
+// команда навічно лишалась у черзі.
+//
+// Alarms, а не setInterval: таймери фонової сторінки вмирають разом із її
+// вивантаженням, а будильник її ж і будить.
+chrome.alarms.create("bridge-poll", {periodInMinutes: 0.25});
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name !== "bridge-poll") return;
+  heartbeat();
+  pollCommands();
+});
+
 heartbeat();
+pollCommands();
