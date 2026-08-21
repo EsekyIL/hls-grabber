@@ -1,0 +1,741 @@
+/* HLS Grabber — оформлення в мові reel anime.
+ *
+ * Одна таблиця замість одинадцяти. Було так: app.css задавав вигляд,
+ * redesign.css його перекривав, а далі йшло по файлу на кожен блок —
+ * queue, browse, package, controls, history-controls, diagnostics, bridge,
+ * capture, typography. Щоб змінити колір кнопки, доводилось шукати, у якому
+ * з семи файлів вона перевизначена востаннє, і дописувати восьмий.
+ *
+ * Палітра — та сама, що в адмінці reel anime: ті самі поверхні, лінії й
+ * бірюзовий акцент замість лаймового. Дві панелі, якими користується одна
+ * людина, не мають виглядати як два різні продукти.
+ *
+ * Назви класів лишились незмінні: app.js їх шукає, і перейменування
+ * перетворило б переоформлення на переписування логіки.
+ */
+
+/* Montserrat лежить поруч у fonts/ і вантажиться локально: панель має
+ * працювати без інтернету — це записано і в README.
+ *
+ * Кореневий кегль лишаємо стандартним. У typography.css стояло
+ * html{font-size:17px}, і кожен rem мовчки ставав на 6% більшим за той, що
+ * мали на увазі, — а розміри тут узяті з reel anime, де корінь 16px. */
+@font-face {
+  font-family: Montserrat;
+  src: url('/fonts/Montserrat-Variable.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+
+  --c-bg: #08090b;
+  --c-surface: #101216;
+  --c-surface-2: #17191e;
+  --c-text-hi: #f2f1ec;
+  --c-text-mid: #a8a9ad;
+  --c-text-low: #6b6c70;
+  --c-line: #232529;
+
+  --brand: #0cebfc;
+  --brand-hover: #5cf5ff;
+  --success: #0cfc6c;
+  --error: #ec2b2e;
+  --warn: #fbbf24;
+
+  --radius: 0.375rem;
+  --rail: 13rem;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-text-hi);
+  font: 400 14px/1.5 Montserrat, system-ui, -apple-system, "Segoe UI", sans-serif;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Розмиті кольорові плями фону прибрано.
+ * Вони давали серпанок під панелями, і на ньому межі карток читались гірше,
+ * ніж на суцільному тлі, — а працює ця панель саме зі списками, де межа
+ * рядка важливіша за атмосферу. */
+.ambient { display: none; }
+
+.hidden { display: none !important; }
+
+::selection { background: color-mix(in srgb, var(--brand) 30%, transparent); }
+
+:where(button, input, select, textarea):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--brand) 60%, transparent);
+  outline-offset: 2px;
+}
+
+/* ── Типографіка ───────────────────────────────────────────────────────── */
+
+/* Заголовкам — власний міжрядковий. Успадкований від body 1.5 давав
+ * 28-піксельному h1 висоту рядка в 42px: типографічно завелико, а в шапці
+ * сторінки це ще й зайві двадцять пікселів порожнечі над вмістом. */
+h1 { margin: 0; font-size: 1.75rem; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; }
+h2 { margin: 0; font-size: 1.063rem; font-weight: 600; line-height: 1.3; }
+h3 { margin: 0; font-size: 0.938rem; font-weight: 600; line-height: 1.3; }
+p  { margin: 0; }
+
+/* Надзаголовок — той самий, що над кожним блоком в адмінці reel anime. */
+.eyebrow {
+  margin: 0 0 0.25rem;
+  font-size: 0.688rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-text-low);
+}
+
+small, .hint { font-size: 0.75rem; color: var(--c-text-low); }
+
+/* ── Кістяк ────────────────────────────────────────────────────────────── */
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: var(--rail) 1fr;
+}
+
+.rail {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  padding: 1.5rem 1rem;
+  border-right: 1px solid var(--c-line);
+  background: var(--c-bg);
+}
+
+/* Без бірюзової плашки з літерою «H»: у панелі на п'ять сторінок вона
+ * нічого не розрізняла, а брендовий колір краще лишити тому єдиному, що
+ * ним позначене, — активному пункту навігації й головній кнопці. */
+.brand {
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.04em;
+  color: var(--c-text-hi);
+}
+
+.rail nav { display: grid; gap: 0.125rem; }
+
+.nav-button {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--c-text-mid);
+  font: inherit;
+  font-size: 0.813rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.nav-button span { width: 1rem; text-align: center; opacity: 0.7; }
+.nav-button b { font-weight: 500; }
+.nav-button:hover { background: rgba(255, 255, 255, 0.03); color: var(--c-text-hi); }
+
+.nav-button.active {
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--brand);
+}
+.nav-button.active span { opacity: 1; }
+
+.rail__footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--c-text-low);
+}
+
+.rail__footer i,
+.connection span {
+  width: 0.375rem;
+  height: 0.375rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+main { width: 100%; max-width: 90rem; margin: 0 auto; padding: 0 2.5rem 3rem; }
+
+.page { display: none; }
+.page.active { display: block; }
+
+/* Шапка сторінки. Була 142px заввишки — майже стільки ж, скільки перший
+ * блок вмісту; на ноутбуці вона з'їдала пів екрана ще до першого рядка. */
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.75rem 0 1.25rem;
+}
+
+.connection {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--c-text-mid);
+}
+
+/* ── Панелі ───────────────────────────────────────────────────────────── */
+
+.panel {
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(26rem, 1.1fr) minmax(21rem, 0.9fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+
+/* ── Поля й кнопки ────────────────────────────────────────────────────── */
+
+.field { display: flex; flex-direction: column; gap: 0.375rem; margin-bottom: 0.875rem; }
+
+.field > span {
+  font-size: 0.688rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-text-low);
+}
+
+.field > span em { font-style: normal; text-transform: none; letter-spacing: 0; opacity: 0.7; }
+
+input, select, textarea {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+  color: var(--c-text-hi);
+  font: inherit;
+  font-size: 0.875rem;
+  transition: border-color 0.15s;
+}
+
+input::placeholder, textarea::placeholder { color: var(--c-text-low); }
+input:focus, select:focus, textarea:focus { border-color: color-mix(in srgb, var(--brand) 60%, transparent); outline: none; }
+textarea { resize: vertical; min-height: 6rem; font-size: 0.813rem; }
+input[type="number"] { font-variant-numeric: tabular-nums; }
+
+.path-picker { display: flex; gap: 0.5rem; }
+.path-picker input { flex: 1; }
+
+button {
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+  color: var(--c-text-mid);
+  font: inherit;
+  font-size: 0.813rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s, opacity 0.15s;
+}
+
+button:hover { border-color: var(--c-text-low); color: var(--c-text-hi); }
+button:disabled { opacity: 0.5; cursor: default; }
+button:disabled:hover { border-color: var(--c-line); color: var(--c-text-mid); }
+
+button.primary {
+  border-color: transparent;
+  background: var(--brand);
+  color: var(--c-bg);
+  font-weight: 600;
+}
+button.primary:hover { background: var(--brand-hover); color: var(--c-bg); }
+button.compact { padding: 0.5rem 0.75rem; }
+
+button.secondary { background: transparent; }
+
+button.danger { border-color: color-mix(in srgb, var(--error) 45%, transparent); color: var(--error); background: transparent; }
+button.danger:hover { border-color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); color: var(--error); }
+
+.form-actions { display: flex; align-items: center; gap: 0.875rem; margin-top: 1.25rem; }
+
+/* Смуги перемикачів: режим і джерело. Одна форма на обидві — це один і той
+ * самий жест «вибрати з двох», і різний вигляд лише збивав би. */
+.mode-tabs, .source-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.mode-tabs button, .source-tabs button {
+  border: 0;
+  background: transparent;
+  padding: 0.375rem 0.75rem;
+}
+
+.mode-tabs button.active, .source-tabs button.active {
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  color: var(--brand);
+}
+
+/* ── Розширене ────────────────────────────────────────────────────────── */
+
+/* Сира простиня посилань під згорткою. У звичайному потоці адреси дає
+ * підбірка серій, і показувати їх ще й текстом означає віддати пів екрана
+ * тому, на що ніхто не дивиться. Поле лишається в розмітці — саме воно йде
+ * в завантаження, коли підбіркою не користуються. */
+details.advanced {
+  margin-bottom: 0.875rem;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+details.advanced > summary {
+  padding: 0.625rem 0.875rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-text-low);
+  cursor: pointer;
+  list-style: none;
+  transition: color 0.15s;
+}
+details.advanced > summary:hover { color: var(--c-text-hi); }
+details.advanced > summary::-webkit-details-marker { display: none; }
+
+/* Власна стрілка, що повертається: типовий маркер списку в різних рушіях
+ * виглядає по-різному, а тут поруч уже є свій набір позначок. */
+details.advanced > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 1rem;
+  color: var(--c-text-low);
+  transition: transform 0.15s;
+}
+details.advanced[open] > summary::before { transform: rotate(90deg); }
+
+.advanced__body { padding: 0 0.875rem 0.25rem; }
+.advanced__body .field:last-child { margin-bottom: 0.875rem; }
+
+/* ── Стан і мітки ─────────────────────────────────────────────────────── */
+
+.state, .status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--c-line);
+  border-radius: 999px;
+  font-size: 0.688rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-text-low);
+  white-space: nowrap;
+}
+
+.status-pill.warning, .status-pill.outdated { border-color: color-mix(in srgb, var(--warn) 40%, transparent); color: var(--warn); }
+.status-pill.error, .state.error { border-color: color-mix(in srgb, var(--error) 40%, transparent); color: var(--error); }
+.status-pill.connected, .state.active { border-color: color-mix(in srgb, var(--success) 40%, transparent); color: var(--success); }
+.status-pill.disconnected { color: var(--c-text-low); }
+
+/* ── Смуга перехоплення ───────────────────────────────────────────────── */
+
+.capture-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.capture-bar strong { display: block; font-size: 0.813rem; font-weight: 600; }
+.capture-bar small { display: block; margin-top: 0.125rem; }
+.capture-bar > div { flex: 1; min-width: 0; }
+.capture-bar__actions { display: flex; gap: 0.375rem; }
+.capture-bar__actions button { padding: 0.375rem 0.625rem; font-size: 0.75rem; }
+
+/* Крапка живого стану. Пульсує лише коли міст справді підключений — інакше
+ * це анімація, яка обіцяє роботу там, де її немає. */
+.capture-bar__pulse {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--c-text-low);
+}
+
+.capture-bar.connected .capture-bar__pulse { background: var(--success); animation: pulse 2s ease-in-out infinite; }
+.capture-bar.error .capture-bar__pulse { background: var(--error); }
+
+@keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.35 } }
+
+.capture-picker {
+  padding: 0.875rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.capture-picker__head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.75rem; }
+.capture-picker__head strong { font-size: 0.813rem; }
+.capture-picker__head span { display: flex; gap: 0.375rem; }
+.capture-picker__head button { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+
+.capture-group { margin-bottom: 0.875rem; }
+.capture-group__title, .season-group__title {
+  margin-bottom: 0.5rem;
+  font-size: 0.688rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-text-low);
+}
+
+.season-group { margin-bottom: 0.75rem; }
+
+.episode-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(3.25rem, 1fr)); gap: 0.375rem; }
+
+/* Епізод — квадратна клітинка з номером. Списком у стовпчик шістдесят серій
+ * перетворювались на прокрутку, у якій не видно загальної картини: скільки
+ * вибрано й де саме діра. */
+.capture-item {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  color: var(--c-text-mid);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+
+.capture-item:hover { border-color: var(--c-text-low); color: var(--c-text-hi); }
+
+/* Вибране підсвічуємо через :has, а не класом.
+ *
+ * Чекбокс усередині схований, а клас .active сюди ніхто не ставив — розмітку
+ * будує renderCapturePicker і лише проставляє checked. Через це вибрані
+ * епізоди виглядали точно як невибрані: єдиним слідом вибору лишався
+ * лічильник «Вибрано: 4 із 61» унизу.
+ *
+ * :has читає справжній стан поля, тож підсвітка не може розійтись із тим,
+ * що піде в завантаження. */
+.capture-item:has(input:checked),
+.capture-item.active {
+  border-color: color-mix(in srgb, var(--brand) 60%, transparent);
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  color: var(--brand);
+}
+.capture-item input { display: none; }
+.capture-item__episode { font-weight: 600; }
+
+/* ── Розбір адреси серіалу ────────────────────────────────────────────── */
+
+/* Блок стоїть НАД смугою перехоплення, бо описує інший спосіб роботи:
+ * не «сиди на сайті, а я підслухаю», а «дай адресу, решту зроблю сам».
+ * Перехоплення лишається нижче як ручний шлях. */
+.series-probe {
+  padding: 0.875rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.series-probe__row { display: flex; gap: 0.5rem; }
+.series-probe__row input { flex: 1; }
+
+.series-probe__body { margin-top: 0.875rem; }
+.series-probe__head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.625rem; }
+.series-probe__head strong { font-size: 0.875rem; }
+.series-probe__head span { font-size: 0.75rem; color: var(--c-text-low); }
+.series-probe__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.625rem; margin-top: 0.875rem; }
+
+.voice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.375rem; }
+
+/* Озвучка — той самий жест вибору, що й епізод, тож і вигляд спільний:
+ * рамка, підсвітка вибраного, схований чекбокс. */
+.voice-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  color: var(--c-text-mid);
+  font-size: 0.813rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+.voice-item:hover { border-color: var(--c-text-low); color: var(--c-text-hi); }
+.voice-item:has(input:checked),
+.voice-item.active {
+  border-color: color-mix(in srgb, var(--brand) 60%, transparent);
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--brand);
+}
+.voice-item input { display: none; }
+
+.capture-picker__tools { display: flex; align-items: center; gap: 0.5rem; }
+
+/* Вибір якості. З'являється лише коли в записах справді є з чого вибирати:
+ * епізоди, спіймані старим перехопленням, мають рівно одну адресу. */
+.quality-pick { display: flex; align-items: center; gap: 0.375rem; }
+.quality-pick > span { font-size: 0.688rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-text-low); }
+.quality-pick select { width: auto; padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+
+/* ── Активне завантаження ─────────────────────────────────────────────── */
+
+.empty-state { padding: 2.5rem 1rem; text-align: center; }
+.empty-state h3 { margin-bottom: 0.375rem; }
+.empty-state p { font-size: 0.813rem; color: var(--c-text-low); }
+
+.signal { display: flex; justify-content: center; gap: 0.25rem; margin-bottom: 1rem; }
+.signal i { width: 0.1875rem; height: 1.25rem; border-radius: 999px; background: var(--c-line); animation: signal 1.4s ease-in-out infinite; }
+.signal i:nth-child(2) { animation-delay: 0.2s }
+.signal i:nth-child(3) { animation-delay: 0.4s }
+
+@keyframes signal { 0%, 100% { transform: scaleY(0.4) } 50% { transform: scaleY(1) } }
+
+.progress-view { display: grid; grid-template-columns: auto 1fr auto; gap: 0.75rem 0.875rem; align-items: center; }
+.media-icon { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: var(--radius); background: var(--c-surface-2); color: var(--brand); }
+.progress-copy { min-width: 0; }
+.progress-copy p { font-size: 0.875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress-copy span { font-size: 0.75rem; color: var(--c-text-low); }
+.progress-number { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--brand); }
+
+.track, .manager-track { grid-column: 1 / -1; height: 0.25rem; border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.track i, .manager-track i { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--brand); transition: width 0.3s ease-out; }
+
+.metrics { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; padding-top: 0.25rem; }
+.metrics span { display: block; font-size: 0.688rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-text-low); }
+.metrics strong { font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+
+.job-actions, .queue-toolbar, .queue-job__actions, .tool-actions, .bridge-setup-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.job-actions { grid-column: 1 / -1; margin-top: 0.25rem; }
+.queue-toolbar { align-items: center; }
+
+/* ── Черга ────────────────────────────────────────────────────────────── */
+
+.manager-head { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+.manager-head p { font-size: 0.813rem; color: var(--c-text-low); }
+
+.manager-empty { padding: 2.5rem 1rem; text-align: center; border: 1px dashed var(--c-line); border-radius: var(--radius); }
+.manager-empty strong { display: block; font-size: 0.938rem; }
+.manager-empty span { font-size: 0.813rem; color: var(--c-text-low); }
+
+.manager-current {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem 0.875rem;
+  padding: 0.875rem;
+  margin-bottom: 1rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 35%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--brand) 5%, transparent);
+}
+.manager-title { font-size: 0.875rem; font-weight: 600; }
+.manager-current span { font-size: 0.75rem; color: var(--c-text-low); }
+.manager-current strong { font-variant-numeric: tabular-nums; color: var(--brand); }
+
+.queue-jobs { display: flex; flex-direction: column; }
+.queue-job { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; padding: 0.75rem 0; border-top: 1px solid var(--c-line); }
+.queue-job:first-child { border-top: 0; }
+.queue-job__title { flex: 1; min-width: 10rem; font-size: 0.813rem; }
+.queue-job__episode { font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--c-text-low); }
+.queue-job__state { font-size: 0.688rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--c-text-low); }
+.queue-job__state.active { color: var(--brand); }
+.queue-job__state.error { color: var(--error); }
+.queue-job__actions button { padding: 0.375rem 0.625rem; font-size: 0.75rem; }
+
+/* ── Історія ──────────────────────────────────────────────────────────── */
+
+.history-head, .history-row { display: grid; grid-template-columns: 1fr 8rem 8rem; gap: 0.75rem; align-items: center; }
+.history-head { padding-bottom: 0.625rem; border-bottom: 1px solid var(--c-line); font-size: 0.688rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-text-low); }
+.history-row { padding: 0.625rem 0; border-bottom: 1px solid var(--c-line); font-size: 0.813rem; }
+.history-row:last-child { border-bottom: 0; }
+.history-status { font-size: 0.688rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.history-status.active { color: var(--success); }
+.history-status.error { color: var(--error); }
+
+/* ── Діагностика ──────────────────────────────────────────────────────── */
+
+.diagnostic-hero { display: flex; align-items: center; gap: 1.25rem; margin-bottom: 1rem; }
+.diagnostic-hero > div { flex: 1; }
+.diagnostic-hero time { font-size: 0.75rem; color: var(--c-text-low); }
+
+.health-orb { display: grid; place-items: center; width: 3rem; height: 3rem; flex: none; border-radius: 50%; border: 1px solid var(--c-line); }
+.health-orb i { width: 0.75rem; height: 0.75rem; border-radius: 50%; background: var(--c-text-low); }
+.health-orb.active i { background: var(--success); }
+.health-orb.warning i { background: var(--warn); }
+.health-orb.error i { background: var(--error); }
+
+.diagnostic-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+.diagnostic-card__top { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.875rem; }
+.tool-icon { display: grid; place-items: center; width: 2rem; height: 2rem; flex: none; border-radius: var(--radius); background: var(--c-surface-2); font-size: 0.75rem; font-weight: 700; color: var(--brand); }
+.tool-name { flex: 1; font-size: 0.875rem; font-weight: 600; }
+.tool-versions { display: flex; gap: 1.25rem; margin-bottom: 0.75rem; font-size: 0.75rem; color: var(--c-text-low); font-variant-numeric: tabular-nums; }
+.tool-path { display: block; margin-bottom: 0.875rem; font-size: 0.688rem; color: var(--c-text-low); word-break: break-all; }
+
+.skeleton-card { min-height: 9rem; background: linear-gradient(90deg, var(--c-surface) 0%, var(--c-surface-2) 50%, var(--c-surface) 100%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+@keyframes shimmer { to { background-position: -200% 0 } }
+
+.diagnostic-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1rem; }
+.diagnostic-section-head { margin-bottom: 0.875rem; }
+.diagnostic-row { display: flex; align-items: center; gap: 0.625rem; padding: 0.625rem 0; border-top: 1px solid var(--c-line); font-size: 0.813rem; }
+.diagnostic-row:first-child { border-top: 0; }
+.diagnostic-row span:last-child { margin-left: auto; font-size: 0.75rem; color: var(--c-text-low); }
+.diagnostic-dot { width: 0.5rem; height: 0.5rem; flex: none; border-radius: 50%; background: var(--c-text-low); }
+.diagnostic-dot.active { background: var(--success); }
+.diagnostic-dot.warning { background: var(--warn); }
+.diagnostic-dot.error { background: var(--error); }
+
+.managed-tools-note { display: block; margin-top: 1rem; padding: 0.875rem 1rem; border: 1px dashed var(--c-line); border-radius: var(--radius); font-size: 0.75rem; color: var(--c-text-low); }
+.managed-tools-note strong { display: block; margin-bottom: 0.25rem; color: var(--c-text-mid); }
+.managed-tools-note span { display: block; margin-bottom: 0.25rem; word-break: break-all; }
+
+/* ── Міст Firefox ─────────────────────────────────────────────────────── */
+
+.bridge-setup-card { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-bottom: 1rem; }
+.bridge-setup-icon { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; flex: none; border-radius: var(--radius); background: var(--c-surface-2); font-weight: 700; color: var(--brand); }
+.bridge-setup-copy { flex: 1; min-width: 18rem; }
+.bridge-setup-copy p:not(.eyebrow) { font-size: 0.813rem; color: var(--c-text-mid); }
+.bridge-setup-actions { flex-direction: column; align-items: stretch; align-self: center; }
+
+.bridge-steps { display: grid; gap: 0.375rem; margin: 0.875rem 0; }
+.bridge-steps span { display: flex; align-items: center; gap: 0.5rem; font-size: 0.813rem; color: var(--c-text-mid); }
+.bridge-steps b { display: grid; place-items: center; width: 1.125rem; height: 1.125rem; flex: none; border-radius: 50%; background: var(--c-surface-2); font-size: 0.625rem; color: var(--c-text-low); }
+
+/* ── Налаштування ─────────────────────────────────────────────────────── */
+
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(21rem, 1fr)); gap: 1.25rem; }
+.settings-card h2 { margin-bottom: 1.25rem; }
+.settings-note { margin-top: 0.75rem; font-size: 0.75rem; color: var(--c-text-low); }
+
+/* ── Діалог і сповіщення ──────────────────────────────────────────────── */
+
+.package-dialog { padding: 0; border: 1px solid var(--c-line); border-radius: var(--radius); background: var(--c-surface); color: var(--c-text-hi); max-width: 32rem; width: calc(100% - 2rem); }
+.package-dialog::backdrop { background: rgba(8, 9, 11, 0.7); }
+.package-dialog form { padding: 1.25rem; }
+.package-dialog__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+.package-dialog__head button { border: 0; background: transparent; padding: 0.25rem 0.5rem; font-size: 1.125rem; }
+.package-dialog__actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem; }
+
+.package-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.package-summary > div { display: flex; flex-direction: column; gap: 0.125rem; }
+.package-summary span { font-size: 0.688rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-text-low); }
+.package-summary strong { font-size: 0.875rem; word-break: break-word; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translate(-50%, 1rem);
+  padding: 0.625rem 1rem;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+  font-size: 0.813rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 50;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.error { border-color: color-mix(in srgb, var(--error) 45%, transparent); color: var(--error); }
+
+/* ── Вузькі екрани ────────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+  .workspace-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 4.5rem 1fr; }
+  .rail { padding: 1.5rem 0.625rem; }
+  .brand, .nav-button b, .rail__footer span { display: none; }
+  .nav-button { justify-content: center; padding: 0.625rem; }
+  main { padding: 0 1.25rem 2.5rem; }
+  .bridge-setup-actions { align-self: stretch; }
+}
+
+@media (max-width: 640px) {
+  .shell { display: block; }
+  .rail {
+    position: fixed;
+    inset: auto 0.75rem 0.75rem;
+    z-index: 20;
+    height: auto;
+    flex-direction: row;
+    gap: 0.25rem;
+    padding: 0.375rem;
+    border: 1px solid var(--c-line);
+    border-radius: var(--radius);
+    background: var(--c-surface);
+  }
+  .brand, .rail__footer { display: none; }
+  .rail nav { flex: 1; display: flex; }
+  .nav-button { flex: 1; }
+  main { padding: 0 1rem 6rem; }
+  .topbar { padding: 1.25rem 0 1rem; }
+  h1 { font-size: 1.375rem; }
+  .split, .package-summary { grid-template-columns: 1fr; }
+  .history-head, .history-row { grid-template-columns: 1fr 5rem; }
+  .history-head span:last-child, .history-row span:last-child { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

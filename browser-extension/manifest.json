@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "HLS Grabber Bridge",
+  "version": "1.4.0",
+  "description": "Передає знайдені M3U8-посилання у локальну панель HLS Grabber.",
+  "permissions": [
+    "storage",
+    "webRequest",
+    "tabs",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "scripts": [
+      "service-worker.js"
+    ],
+    "service_worker": "service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "cdn-api.js",
+        "content-script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "HLS Grabber Bridge",
+    "default_popup": "popup.html"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "hls-grabber-bridge@local",
+      "strict_min_version": "121.0"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "stay-awake.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}
