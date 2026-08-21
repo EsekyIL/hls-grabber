@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "HLS Grabber Bridge",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "Передає знайдені M3U8-посилання у локальну панель HLS Grabber.",
   "permissions": [
     "storage",

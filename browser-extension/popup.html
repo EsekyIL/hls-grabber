@@ -71,6 +71,14 @@ button:disabled:hover{border-color:var(--line);color:var(--mid)}
 .progress b{font-size:12px;font-variant-numeric:tabular-nums;color:var(--brand)}
 .progress span{font-size:11px;color:var(--mid)}
 
+/* Запит дозволу. Помітно, бо без нього половина можливостей мовчки не
+   працює — і зрозуміти чому неможливо: сторінка ж відкривається. */
+.grant{padding:10px;margin-bottom:12px;border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:var(--radius);background:color-mix(in srgb,var(--warn) 8%,transparent)}
+.grant p{margin:0 0 8px;font-size:11px;line-height:1.45;color:var(--mid)}
+.grant b{color:var(--warn)}
+.grant button{width:100%}
+.hidden{display:none!important}
+
 #status{display:block;margin-top:12px;font-size:11px;line-height:1.45;color:var(--low)}
 #status.ok{color:var(--success)}
 #status.bad{color:var(--error)}
@@ -82,6 +90,11 @@ button:disabled:hover{border-color:var(--line);color:var(--mid)}
 <body>
   <h1>HLS <span>GRABBER</span></h1>
   <div id="title">Читаю сторінку…</div>
+
+  <div class="grant hidden" id="grant">
+    <p><b>Немає доступу до сайтів.</b> Без нього панель не може відкрити сторінку сама — працюватиме лише ручне сканування з цього вікна.</p>
+    <button id="grantBtn" class="primary">Дозволити доступ</button>
+  </div>
 
   <label class="row">
     <span>Перехоплення</span>

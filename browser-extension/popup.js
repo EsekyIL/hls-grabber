@@ -16,6 +16,20 @@ async function scanState() {
   }
 }
 
+// Доступ до сайтів у Firefox MV3 треба просити окремо: host_permissions при
+// встановленні не видаються. Без нього content script не впроваджується, і
+// панель не може відкрити сторінку сама.
+//
+// Просити можна ЛИШЕ у відповідь на клік — це вимога браузера, тож кнопка
+// тут і потрібна: з фонового скрипта такий запит просто відхилять.
+async function siteAccess() {
+  try {
+    return await chrome.permissions.contains({origins: ["<all_urls>"]});
+  } catch (_) {
+    return true;
+  }
+}
+
 function setStatus(text, tone = "") {
   const node = $("#status");
   node.textContent = text;
@@ -75,6 +89,8 @@ function startPolling() {
 }
 
 async function init() {
+  $("#grant").classList.toggle("hidden", await siteAccess());
+
   const config = await chrome.storage.local.get({enabled: true, port: 8788});
   $("#enabled").checked = config.enabled;
   $("#enabledSwitch").classList.toggle("on", config.enabled);
@@ -114,6 +130,21 @@ async function init() {
     setStatus("Онови сторінку після перевстановлення розширення.", "warn");
   }
 }
+
+$("#grantBtn").addEventListener("click", async () => {
+  try {
+    const granted = await chrome.permissions.request({origins: ["<all_urls>"]});
+    $("#grant").classList.toggle("hidden", granted);
+    setStatus(
+      granted
+        ? "Доступ надано. Онови сторінку сайту, щоб скрипт впровадився."
+        : "Доступ не надано — панель не зможе відкривати сторінки сама.",
+      granted ? "ok" : "warn",
+    );
+  } catch (error) {
+    setStatus(error.message, "bad");
+  }
+});
 
 $("#enabledSwitch").addEventListener("click", event => {
   // Клік по самому <input> усередині обробляє браузер; ловимо лише клік по
