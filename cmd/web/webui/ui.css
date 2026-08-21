@@ -564,6 +564,8 @@ details.advanced[open] > summary::before { transform: rotate(90deg); }
 .metrics strong { font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 
 .job-actions, .queue-toolbar, .queue-job__actions, .tool-actions, .bridge-setup-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.tool-actions { align-items: center; }
+.tool-actions p { flex: 1; min-width: 8rem; font-size: 0.75rem; color: var(--c-text-mid); }
 .job-actions { grid-column: 1 / -1; margin-top: 0.25rem; }
 .queue-toolbar { align-items: center; }
 
@@ -613,7 +615,12 @@ details.advanced[open] > summary::before { transform: rotate(90deg); }
 /* ── Діагностика ──────────────────────────────────────────────────────── */
 
 .diagnostic-hero { display: flex; align-items: center; gap: 1.25rem; margin-bottom: 1rem; }
-.diagnostic-hero > div { flex: 1; }
+
+/* :not(.health-orb) обов'язковий. Орб — теж <div>, і правило «.diagnostic-hero
+ * > div» перебивало його власний flex:none: два класи специфічніші за один.
+ * Кружечок 48×48 розтягувало на пів рядка, і замість крапки стану виходив
+ * еліпс через увесь блок. */
+.diagnostic-hero > div:not(.health-orb) { flex: 1; }
 .diagnostic-hero time { font-size: 0.75rem; color: var(--c-text-low); }
 
 .health-orb { display: grid; place-items: center; width: 3rem; height: 3rem; flex: none; border-radius: 50%; border: 1px solid var(--c-line); }
@@ -625,8 +632,12 @@ details.advanced[open] > summary::before { transform: rotate(90deg); }
 .diagnostic-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1rem; margin-bottom: 1rem; }
 .diagnostic-card__top { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.875rem; }
 .tool-icon { display: grid; place-items: center; width: 2rem; height: 2rem; flex: none; border-radius: var(--radius); background: var(--c-surface-2); font-size: 0.75rem; font-weight: 700; color: var(--brand); }
-.tool-name { flex: 1; font-size: 0.875rem; font-weight: 600; }
-.tool-versions { display: flex; gap: 1.25rem; margin-bottom: 0.75rem; font-size: 0.75rem; color: var(--c-text-low); font-variant-numeric: tabular-nums; }
+.tool-name { display: flex; align-items: center; gap: 0.625rem; flex: 1; min-width: 0; }
+.tool-name h2 { font-size: 0.875rem; }
+.tool-name small { display: block; margin-top: 0.125rem; }
+.tool-versions { display: flex; gap: 1.25rem; margin-bottom: 0.75rem; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.tool-versions span { display: block; text-transform: uppercase; letter-spacing: 0.06em; color: var(--c-text-low); }
+.tool-versions strong { display: block; margin-top: 0.125rem; font-weight: 600; color: var(--c-text-hi); }
 .tool-path { display: block; margin-bottom: 0.875rem; font-size: 0.688rem; color: var(--c-text-low); word-break: break-all; }
 
 .skeleton-card { min-height: 9rem; background: linear-gradient(90deg, var(--c-surface) 0%, var(--c-surface-2) 50%, var(--c-surface) 100%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
@@ -636,7 +647,12 @@ details.advanced[open] > summary::before { transform: rotate(90deg); }
 .diagnostic-section-head { margin-bottom: 0.875rem; }
 .diagnostic-row { display: flex; align-items: center; gap: 0.625rem; padding: 0.625rem 0; border-top: 1px solid var(--c-line); font-size: 0.813rem; }
 .diagnostic-row:first-child { border-top: 0; }
-.diagnostic-row span:last-child { margin-left: auto; font-size: 0.75rem; color: var(--c-text-low); }
+.diagnostic-row > div { min-width: 0; }
+/* strong і small усередині рядка — обидва рядкові за замовчуванням, і без
+ * block виходило «Локальний серверПанель відповідає». */
+.diagnostic-row strong { display: block; font-size: 0.813rem; font-weight: 600; }
+.diagnostic-row small { display: block; margin-top: 0.125rem; }
+.diagnostic-row > span:last-child { margin-left: auto; font-size: 0.75rem; color: var(--c-text-low); white-space: nowrap; }
 .diagnostic-dot { width: 0.5rem; height: 0.5rem; flex: none; border-radius: 50%; background: var(--c-text-low); }
 .diagnostic-dot.active { background: var(--success); }
 .diagnostic-dot.warning { background: var(--warn); }
