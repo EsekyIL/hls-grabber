@@ -351,8 +351,20 @@ chrome.runtime.onMessage.addListener((message, _sender, respond) => {
     scanRunning = true; scanCancelled = false;
     Promise.resolve()
       .then(() => runner(message.translatorIds || []))
-      .then(respond)
-      .catch(error => respond({error: error.message}))
+      .then(result => {
+        // Підсумок віддаємо ДВІЧІ: тому, хто попросив, і фоновому скрипту.
+        //
+        // Перший адресат зазвичай уже мертвий: попап Firefox знищується,
+        // щойно втрачає фокус, а прохід триває хвилини. Фон же переживе і
+        // це, і власне вивантаження, тож саме там результат чекає, поки
+        // попап відкриють знову.
+        chrome.runtime.sendMessage({type: "scan-finished", result}).catch(() => {});
+        respond(result);
+      })
+      .catch(error => {
+        chrome.runtime.sendMessage({type: "scan-finished", result: {error: error.message}}).catch(() => {});
+        respond({error: error.message});
+      })
       .finally(() => { scanRunning = false; });
     return true;
   }

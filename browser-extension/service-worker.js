@@ -113,6 +113,28 @@ async function sendStreams(payload) {
   }
 }
 
+// ── Стан сканування для попапа ──────────────────────────────────────────
+//
+// Попап Firefox знищується, щойно втрачає фокус, а прохід триває хвилини.
+// Через це підсумок, який повертав start-scan, не бачив ніхто: обіцянка
+// «покажу результат» жила рівно доти, доки вікно відкрите.
+//
+// Тому стан тримає фон. Копія в storage.session — на випадок, коли Firefox
+// вивантажить фонову сторінку між подіями: без неї попап після пробудження
+// показував би порожню форму посеред активного сканування.
+let scanState = {running: false, completed: 0, tabId: null, result: null, startedAt: 0};
+
+function saveScanState() {
+  chrome.storage.session.set({scanState}).catch(() => {});
+}
+
+async function loadScanState() {
+  try {
+    const saved = await chrome.storage.session.get("scanState");
+    if (saved.scanState) scanState = saved.scanState;
+  } catch (_) {}
+}
+
 // ── Виконання команд панелі ─────────────────────────────────────────────
 //
 // Панель кладе завдання в чергу, ми забираємо його на кожному heartbeat.
@@ -205,7 +227,7 @@ async function pollCommands() {
   }
 }
 
-chrome.runtime.onMessage.addListener((message, sender) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "bridge-heartbeat") heartbeat();
   if (message?.type === "scan-context" && sender.tab?.id >= 0) {
     // Дублюємо в session-сховище. Firefox тримає фонову сторінку як event
@@ -223,8 +245,28 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   }
   if (message?.type === "cdn-found") sendStreams(message.payload);
   if (message?.type === "scan-progress") {
-    chrome.action.setBadgeBackgroundColor({color: "#9bd51f"});
+    scanState = {
+      ...scanState,
+      running: true,
+      completed: message.completed,
+      tabId: sender.tab?.id ?? scanState.tabId,
+      result: null,
+      startedAt: scanState.startedAt || Date.now(),
+    };
+    saveScanState();
+    chrome.action.setBadgeBackgroundColor({color: "#0cebfc"});
     chrome.action.setBadgeText({text: String(message.completed)});
+  }
+  if (message?.type === "scan-finished") {
+    scanState = {...scanState, running: false, result: message.result || null};
+    saveScanState();
+    chrome.action.setBadgeText({text: ""});
+  }
+  if (message?.type === "get-scan-state") {
+    // Асинхронна відповідь: стан міг лишитись лише в storage.session, якщо
+    // фонову сторінку встигли вивантажити.
+    loadScanState().then(() => sendResponse(scanState));
+    return true;
   }
 });
 

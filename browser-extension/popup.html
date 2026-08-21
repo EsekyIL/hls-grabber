@@ -1,1 +1,115 @@
-<!doctype html><html lang="uk"><head><meta charset="utf-8"><style>body{width:340px;max-height:560px;overflow:auto;margin:0;padding:18px;background:#111419;color:#f3f6f8;font:13px system-ui}h1{font-size:16px;margin:0 0 4px}#title{color:#929aa4;font-size:11px;margin-bottom:14px}.row{display:flex;align-items:center;justify-content:space-between;margin:10px 0}input[type=number]{width:68px;padding:7px;background:#090b0e;border:1px solid #343a42;border-radius:8px;color:white}.voices{border-top:1px solid #2d333a;margin:14px 0;padding-top:10px}.voice{display:flex;gap:9px;align-items:center;padding:7px 2px}.voice input{accent-color:#c9ff4a}.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.actions button,#save{padding:10px;border:0;border-radius:8px;font-weight:700;cursor:pointer}.primary{background:#c9ff4a;color:#0b0d0f}.secondary{background:#292f36;color:white}small{display:block;color:#8b929c;margin-top:12px;line-height:1.4}</style></head><body><h1>HLS Grabber Bridge</h1><div id="title">Читаю сторінку…</div><label class="row"><span>Перехоплення</span><input id="enabled" type="checkbox"></label><label class="row"><span>Порт Grabber</span><input id="port" type="number" min="1" max="65535"></label><button id="save" class="secondary">Зберегти порт</button><div class="voices" id="voices"></div><div class="actions"><button id="scan" class="primary">Сканувати вибрані</button><button id="cancel" class="secondary">Зупинити</button></div><small id="status">Вибери озвучення, які потрібно просканувати.</small><script src="popup.js"></script></body></html>
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<!--
+  Оформлення те саме, що в панелі (webui/ui.css): ті самі поверхні, лінії й
+  бірюзовий акцент. Два вікна однієї програми не мають виглядати як два
+  різні продукти — попередній попап був лаймовий, від старої палітри.
+
+  Стилі тут вбудовані, а не окремим файлом: попап важить пару кілобайтів,
+  і зайвий запит заради них не окупається.
+-->
+<style>
+:root{
+  --bg:#08090b; --surface:#101216; --surface-2:#17191e;
+  --hi:#f2f1ec; --mid:#a8a9ad; --low:#6b6c70; --line:#232529;
+  --brand:#0cebfc; --brand-hover:#5cf5ff; --success:#0cfc6c; --error:#ec2b2e; --warn:#fbbf24;
+  --radius:6px;
+}
+*{box-sizing:border-box}
+body{
+  width:340px; max-height:580px; overflow:auto; margin:0; padding:16px;
+  background:var(--bg); color:var(--hi);
+  font:13px/1.5 Montserrat,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+h1{font-size:13px;font-weight:700;letter-spacing:.02em;margin:0}
+h1 span{color:var(--brand)}
+#title{color:var(--low);font-size:11px;margin:2px 0 14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.eyebrow{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--low);margin:0 0 6px}
+
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0;font-size:12px;color:var(--mid)}
+input[type=number]{
+  width:74px;padding:6px 8px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:var(--radius);color:var(--hi);font:inherit;font-variant-numeric:tabular-nums;
+}
+input:focus{outline:none;border-color:color-mix(in srgb,var(--brand) 60%,transparent)}
+
+/* Тумблер замість голої галочки: стан читається позицією, а не тим,
+   чи помітив ти пташку в темряві. */
+.switch{position:relative;width:38px;height:21px;flex:none;border:1px solid var(--line);border-radius:999px;background:var(--surface-2);cursor:pointer;transition:background-color .15s,border-color .15s}
+.switch input{position:absolute;opacity:0;pointer-events:none}
+.switch i{position:absolute;top:50%;left:3px;width:15px;height:15px;transform:translateY(-50%);border-radius:50%;background:var(--low);transition:left .15s,background-color .15s}
+.switch.on{border-color:color-mix(in srgb,var(--success) 50%,transparent);background:color-mix(in srgb,var(--success) 22%,transparent)}
+.switch.on i{left:19px;background:var(--success)}
+
+.divider{border:0;border-top:1px solid var(--line);margin:14px 0}
+
+.voice{display:flex;gap:9px;align-items:center;padding:7px 9px;margin-bottom:4px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);color:var(--mid);font-size:12px;cursor:pointer;transition:border-color .15s,color .15s,background-color .15s}
+.voice:hover{border-color:var(--low);color:var(--hi)}
+.voice:has(input:checked){border-color:color-mix(in srgb,var(--brand) 60%,transparent);background:color-mix(in srgb,var(--brand) 12%,transparent);color:var(--brand)}
+.voice input{display:none}
+
+.actions{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:12px}
+button{padding:9px 12px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface-2);color:var(--mid);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:border-color .15s,color .15s,background-color .15s,opacity .15s}
+button:hover{border-color:var(--low);color:var(--hi)}
+button:disabled{opacity:.5;cursor:default}
+button:disabled:hover{border-color:var(--line);color:var(--mid)}
+.primary{border-color:transparent;background:var(--brand);color:var(--bg);font-weight:600}
+.primary:hover{background:var(--brand-hover);color:var(--bg)}
+#save{width:100%;margin-top:2px}
+
+/* Хід сканування. Показуємо його з ФОНУ, а не з обіцянки: попап
+   знищується, щойно втрачає фокус, і чекати тут на результат марно. */
+.progress{display:none;align-items:center;gap:9px;padding:10px;margin-top:12px;border:1px solid color-mix(in srgb,var(--brand) 35%,transparent);border-radius:var(--radius);background:color-mix(in srgb,var(--brand) 6%,transparent)}
+.progress.on{display:flex}
+.dot{position:relative;width:8px;height:8px;flex:none}
+.dot i{position:absolute;inset:0;border-radius:50%;background:var(--brand)}
+.dot i:first-child{animation:ping 1.6s cubic-bezier(0,0,.2,1) infinite;opacity:.6}
+@keyframes ping{75%,100%{transform:scale(2.2);opacity:0}}
+.progress b{font-size:12px;font-variant-numeric:tabular-nums;color:var(--brand)}
+.progress span{font-size:11px;color:var(--mid)}
+
+#status{display:block;margin-top:12px;font-size:11px;line-height:1.45;color:var(--low)}
+#status.ok{color:var(--success)}
+#status.bad{color:var(--error)}
+#status.warn{color:var(--warn)}
+
+@media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+  <h1>HLS <span>GRABBER</span></h1>
+  <div id="title">Читаю сторінку…</div>
+
+  <label class="row">
+    <span>Перехоплення</span>
+    <span class="switch" id="enabledSwitch"><input id="enabled" type="checkbox"><i></i></span>
+  </label>
+  <label class="row">
+    <span>Порт панелі</span>
+    <input id="port" type="number" min="1" max="65535">
+  </label>
+  <button id="save">Зберегти</button>
+
+  <hr class="divider">
+
+  <p class="eyebrow" id="voicesTitle">Озвучення</p>
+  <div id="voices"></div>
+
+  <div class="progress" id="progress">
+    <span class="dot"><i></i><i></i></span>
+    <b id="progressCount">0</b>
+    <span id="progressText">знайдено посилань</span>
+  </div>
+
+  <div class="actions">
+    <button id="scan" class="primary">Сканувати вибрані</button>
+    <button id="cancel">Зупинити</button>
+  </div>
+
+  <small id="status">Вибери озвучення, які потрібно просканувати.</small>
+  <script src="popup.js"></script>
+</body>
+</html>
