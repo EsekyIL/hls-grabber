@@ -706,6 +706,13 @@ details.advanced[open] > summary::before { transform: rotate(90deg); }
 .package-summary span { font-size: 0.688rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-text-low); }
 .package-summary strong { font-size: 0.875rem; word-break: break-word; }
 
+/* Перелік файлів — рядками, кожен цілим. Раніше все склеювалось в один
+   абзац і ламалось посеред шляху, тож прочитати не виходило нічого. */
+#package-files { display: flex; flex-direction: column; gap: 0.25rem; max-height: 11rem; overflow-y: auto; }
+.package-line { font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--c-text-mid); white-space: nowrap; }
+/* Вузьке вікно: краще горизонтальна прокрутка, ніж шлях, розрубаний навпіл. */
+.package-summary > div:has(#package-files) { grid-column: 1 / -1; overflow-x: auto; }
+
 .toast {
   position: fixed;
   left: 50%;

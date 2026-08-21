@@ -374,6 +374,30 @@ function cleanPageTitle(title) {
     .trim();
 }
 
+function summariseFiles(items, container) {
+  const groups = new Map();
+  for (const item of items) {
+    const season = String(item.season || 1).padStart(2, "0");
+    const voice = item.voice ? safePathPart(item.voice) : "";
+    const key = season + "|" + voice;
+    if (!groups.has(key)) groups.set(key, {season, voice, episodes: []});
+    groups.get(key).episodes.push(Number(item.episode) || 0);
+  }
+
+  const lines = [];
+  for (const group of groups.values()) {
+    const episodes = group.episodes.sort((a, b) => a - b);
+    const first = String(episodes[0]).padStart(2, "0");
+    const last = String(episodes[episodes.length - 1]).padStart(2, "0");
+    const range = episodes.length === 1
+      ? "S" + group.season + "E" + first
+      : "S" + group.season + "E" + first + " – S" + group.season + "E" + last;
+    const where = "Season " + group.season + (group.voice ? "\\" + group.voice : "");
+    lines.push(where + "  " + range + "." + container + "  ·  " + episodes.length + " шт.");
+  }
+  return lines;
+}
+
 function safePathPart(value) {
   return String(value || "").replace(/[<>:"/\\|?*]/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -536,12 +560,23 @@ $("#download-form").addEventListener("submit", async event => {
   const seasons = [...new Set((structuredItems.length ? structuredItems.map(item => item.season) : [request.season]).filter(Boolean))];
   const container = config?.yt_dlp?.container || "mp4";
   const previewItems = structuredItems.length ? structuredItems : urls.map((_, index) => ({voice: "", season: request.season || "1", episode: Number(request.startEpisode || 1) + index}));
-  const filePreview = previewItems.map(item => `Season ${String(item.season).padStart(2, "0")}\\${item.voice ? `${safePathPart(item.voice)}\\` : ""}S${String(item.season).padStart(2, "0")}E${String(item.episode).padStart(2, "0")}.${container}`);
+  // Групуємо за сезоном і озвучкою замість переліку всіх файлів.
+  //
+  // Раніше тут склеювались УСІ шляхи через « · »: на чотирьох озвучках по
+  // тринадцять серій виходило п'ятдесят два записи в один рядок, який
+  // ламався посеред слів. Перевірити перед завантаженням там було нічого.
+  //
+  // Показуємо те, заради чого вікно й існує: скільки чого й куди. Діапазон
+  // серій одразу видає діру: «S01E01 – S01E13, 12 шт.» означає, що однієї
+  // бракує, і це видно ДО запуску.
+  const filePreview = summariseFiles(previewItems, container);
   $("#package-title").textContent = request.title;
   $("#package-voice").textContent = voices.join(", ") || "Не визначено";
   $("#package-season").textContent = mode === "series" ? seasons.map(value => `Сезон ${value}`).join(", ") : "Фільм";
   $("#package-count").textContent = mode === "series" ? `${urls.length} серій` : "1 файл";
-  $("#package-files").textContent = mode === "series" ? filePreview.join("  ·  ") : `${request.title}.${container}`;
+  $("#package-files").innerHTML = mode === "series"
+    ? filePreview.map(text => `<span class="package-line">${escapeHTML(text)}</span>`).join("")
+    : escapeHTML(`${request.title}.${container}`);
   $("#package-folder").textContent = request.outputDir || (mode === "series" ? config?.paths?.serials_dir : config?.paths?.movies_dir) || "Папка з налаштувань";
   $("#package-dialog").showModal();
 });
