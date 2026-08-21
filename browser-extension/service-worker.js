@@ -178,6 +178,7 @@ async function waitForContentScript(tabId, timeoutMs = 40000) {
   const deadline = Date.now() + timeoutMs;
   let injected = false;
   let lastError = "";
+  let injectError = "";
 
   while (Date.now() < deadline) {
     try {
@@ -188,15 +189,23 @@ async function waitForContentScript(tabId, timeoutMs = 40000) {
       lastError = error?.message || String(error);
     }
 
-    if (!injected && Date.now() > deadline - timeoutMs / 2) {
+    // Пробуємо впровадити ОДРАЗУ, а не на половині шляху: якщо оголошення в
+    // маніфесті не спрацювало, чекати ще двадцять секунд нема сенсу — воно
+    // не спрацює й далі.
+    if (!injected) {
       injected = true;
       try {
         await chrome.scripting.executeScript({
           target: {tabId},
           files: ["cdn-api.js", "content-script.js"],
         });
+        injectError = "";
       } catch (error) {
-        lastError = `впровадження не вдалось: ${error?.message || error}`;
+        // Зберігаємо ОКРЕМО від lastError: та перезаписується на кожній
+        // ітерації повідомленням «receiving end does not exist», і справжня
+        // причина — відмова у впровадженні — губилась під нею. Саме вона
+        // тут і цінна: у ній Firefox пише, чого бракує.
+        injectError = error?.message || String(error);
       }
     }
     await new Promise(resolve => setTimeout(resolve, 500));
@@ -210,7 +219,10 @@ async function waitForContentScript(tabId, timeoutMs = 40000) {
     const tab = await chrome.tabs.get(tabId);
     where = ` Вкладка: ${tab.status || "?"}, ${tab.url || "адреса невідома"}.`;
   } catch (_) {}
-  throw new Error(`сторінка не відповіла за ${Math.round(timeoutMs / 1000)} с.${where} ${lastError}`.trim());
+  const why = injectError ? ` Впровадження скрипта: ${injectError}.` : "";
+  throw new Error(
+    `сторінка не відповіла за ${Math.round(timeoutMs / 1000)} с.${where}${why} ${lastError}`.trim(),
+  );
 }
 
 async function runCommand(command, port) {
@@ -227,10 +239,26 @@ async function runCommand(command, port) {
     return;
   }
 
-  // Вкладка фонова: сенс усього задуму в тому, щоб не сидіти й не дивитись.
-  // Працює це завдяки stay-awake.js для клікалки; обхід через API сайту
-  // видимості не потребує взагалі.
-  const tab = await chrome.tabs.create({url: command.url, active: false});
+  // Спершу шукаємо вже відкриту вкладку з цією адресою.
+  //
+  // Не заради економії: у вкладці, яку відкрила людина, content script
+  // працює напевно — саме там проходить ручне сканування з попапа. Вкладка ж,
+  // створена самим розширенням, у Firefox інколи лишається без скрипта, і
+  // ззовні це виглядає як німа сторінка.
+  //
+  // Чужу вкладку в кінці НЕ закриваємо: людина її відкрила, їй і вирішувати.
+  let tab = null;
+  let borrowed = false;
+  try {
+    const [found] = await chrome.tabs.query({url: command.url.split("#")[0]});
+    if (found) { tab = found; borrowed = true; }
+  } catch (_) {}
+  if (!tab) {
+    // Вкладка фонова: сенс усього задуму в тому, щоб не сидіти й не
+    // дивитись. Працює це завдяки stay-awake.js для клікалки; обхід через
+    // API сайту видимості не потребує взагалі.
+    tab = await chrome.tabs.create({url: command.url, active: false});
+  }
   try {
     const catalog = await waitForContentScript(tab.id);
     if (!catalog.supported) throw new Error("на цій сторінці адаптер не знайшов серіал");
@@ -253,9 +281,12 @@ async function runCommand(command, port) {
   } catch (error) {
     await report(port, {id: command.id, state: "failed", error: error.message});
   } finally {
-    // Вкладку прибираємо завжди: інакше після десятка серіалів у Firefox
-    // висіла б купа відкритих сторінок, про які ніхто не просив.
-    try { await chrome.tabs.remove(tab.id); } catch (_) {}
+    // Закриваємо лише те, що відкрили самі: інакше після десятка серіалів у
+    // Firefox висіла б купа сторінок, про які ніхто не просив, — а чужу
+    // вкладку зачинити було б просто грубо.
+    if (!borrowed) {
+      try { await chrome.tabs.remove(tab.id); } catch (_) {}
+    }
   }
 }
 
