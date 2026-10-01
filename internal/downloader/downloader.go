@@ -15,7 +15,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
 )
 
 type Downloader struct {
@@ -753,13 +752,21 @@ func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate st
 		d.readProgressStream(ctx, stdout, title)
 	}()
 
+	var lastError string
 	go func() {
 		defer wg.Done()
-		d.copyStream(stderr, os.Stderr, title)
+		lastError = d.copyStream(stderr, os.Stderr, title)
 	}()
 
 	err = cmd.Wait()
 	wg.Wait()
+
+	// Голий «exit status 1» нічого не каже ні в черзі, ні в історії. Причину
+	// yt-dlp пише окремим рядком ERROR — її й показуємо. Через %w: черга
+	// розпізнає збій yt-dlp саме за типом помилки.
+	if err != nil && lastError != "" && ctx.Err() == nil {
+		err = fmt.Errorf("%s (%w)", lastError, err)
+	}
 
 	if err != nil {
 		d.emitProgress(ctx, DownloadStats{
@@ -833,16 +840,38 @@ func (d *Downloader) readProgressStream(ctx context.Context, reader io.Reader, t
 	}
 }
 
-func (d *Downloader) copyStream(reader io.Reader, writer io.Writer, title string) {
+// copyStream переписує stderr yt-dlp у лог і повертає останню причину збою.
+func (d *Downloader) copyStream(reader io.Reader, writer io.Writer, title string) string {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
+	lastError := ""
 	for scanner.Scan() {
 		line := scanner.Text()
 
 		fmt.Fprintln(writer, line)
 		d.writeLog("YTDLP " + title + " " + line)
+		if reason, ok := errorReason(line); ok {
+			lastError = reason
+		}
 	}
+	return lastError
+}
+
+// errorReason дістає причину з рядка «ERROR: [generic] …: HTTP Error 403».
+func errorReason(line string) (string, bool) {
+	text := strings.TrimSpace(line)
+	if !strings.HasPrefix(text, "ERROR:") {
+		return "", false
+	}
+	text = strings.TrimSpace(strings.TrimPrefix(text, "ERROR:"))
+	// Префікс екстрактора «[generic] id:» людині нічого не дає.
+	if strings.HasPrefix(text, "[") {
+		if end := strings.Index(text, "]"); end > 0 {
+			text = strings.TrimSpace(text[end+1:])
+		}
+	}
+	return text, text != ""
 }
 
 func (d *Downloader) writeLog(message string) {

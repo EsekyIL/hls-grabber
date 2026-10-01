@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -167,6 +168,9 @@ func main() {
 	mux := http.NewServeMux()
 	app.routes(mux)
 
+	// Go не знає woff2 сам, а на Windows таблиця типів береться з реєстру й
+	// буває порожньою. Без явного типу шрифт приходить як octet-stream.
+	_ = mime.AddExtensionType(".woff2", "font/woff2")
 	assets, err := fs.Sub(webAssets, "webui")
 	if err != nil {
 		log.Fatal(err)
@@ -198,7 +202,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/pause", func(w http.ResponseWriter, _ *http.Request) { writeResult(w, s.dl.Pause()) })
 	mux.HandleFunc("POST /api/resume", func(w http.ResponseWriter, _ *http.Request) { writeResult(w, s.dl.Resume()) })
 	mux.HandleFunc("POST /api/cancel", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]bool{"cancelled": s.dl.CancelActive()})
+		writeJSON(w, http.StatusOK, map[string]bool{"cancelled": s.queue.cancelRunning()})
 	})
 	mux.HandleFunc("GET /api/inbox", s.getInbox)
 	mux.HandleFunc("POST /api/inbox", s.addInbox)

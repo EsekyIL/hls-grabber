@@ -58,3 +58,18 @@ func TestUniquePathKeepsExistingFiles(t *testing.T) {
 		t.Fatalf("got %s, want %s", got, want)
 	}
 }
+
+func TestErrorReason(t *testing.T) {
+	cases := map[string]string{
+		"ERROR: [generic] Unable to download webpage: HTTP Error 403: Forbidden": "Unable to download webpage: HTTP Error 403: Forbidden",
+		"ERROR: Postprocessing: ffprobe not found":                               "Postprocessing: ffprobe not found",
+	}
+	for line, want := range cases {
+		if got, ok := errorReason(line); !ok || got != want {
+			t.Fatalf("%q: got %q", line, got)
+		}
+	}
+	if _, ok := errorReason("[download] 5% of 100MiB"); ok {
+		t.Fatal("progress line treated as error")
+	}
+}

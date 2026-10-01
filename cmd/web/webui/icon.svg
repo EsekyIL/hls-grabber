@@ -8,10 +8,18 @@
     і воно впізнається без підпису, на відміну від літери H, яка на вкладці
     нічим не відрізняється від сусідніх.
 
-    Кольори ті самі, що в панелі: тло #08090b, акцент #0cebfc.
+    Кольори ті самі, що в логотипі панелі: фіолетово-рожевий градієнт і
+    білий знак.
   -->
-  <rect width="64" height="64" rx="14" fill="#08090b"/>
-  <g stroke="#0cebfc" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c5cff"/>
+      <stop offset="0.5" stop-color="#b54dff"/>
+      <stop offset="1" stop-color="#ff4fa3"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#g)"/>
+  <g stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none">
     <!-- Стрижень і вістря стрілки. Товщина 7 при полі 64 — на 16px це
          майже два пікселі, тобто знак лишається суцільним. -->
     <path d="M32 13v22"/>

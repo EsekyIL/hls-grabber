@@ -423,6 +423,21 @@ func (q *queueManager) action(id, action string) error {
 	return err
 }
 
+// cancelRunning скасовує задачу, що качається зараз.
+//
+// Саме задачу, а не лише процес yt-dlp. Убитий процес черга бачить як
+// звичайний збій yt-dlp і пішла б по дзеркалах і повторах — тобто «Стоп»
+// мовчки перетворився б на «спробуй ще раз».
+func (q *queueManager) cancelRunning() bool {
+	q.mu.Lock()
+	id := q.active
+	q.mu.Unlock()
+	if id == "" {
+		return q.dl.CancelActive()
+	}
+	return q.action(id, "cancel") == nil
+}
+
 func (q *queueManager) stopAll() error {
 	q.mu.Lock()
 	for _, job := range q.jobs {
