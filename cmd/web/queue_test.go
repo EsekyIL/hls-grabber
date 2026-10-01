@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"hls-grabber/internal/config"
@@ -128,5 +129,93 @@ func TestEnqueueKeepsMirrors(t *testing.T) {
 	}
 	if got := jobs[0].Mirrors; len(got) != 1 || got[0] != "https://b.test/1.m3u8" {
 		t.Fatalf("mirrors not cleaned: %v", got)
+	}
+}
+
+func TestRunJobRefreshesExpiredLinks(t *testing.T) {
+	refreshes := 0
+	q := testQueue(t, 0, func(_ context.Context, _ *queueJob, url string) error {
+		if strings.Contains(url, "fresh") {
+			return nil
+		}
+		return errNetwork
+	})
+	q.refresh = func(context.Context, *queueJob) ([]string, error) {
+		refreshes++
+		return []string{"https://a.test/fresh.m3u8", "https://b.test/fresh.m3u8"}, nil
+	}
+	job := &queueJob{Mode: "series", URL: "https://a.test/old.m3u8", PageURL: "https://site.test/show.html", Voice: "Voice", Season: "1", Episode: 2}
+	if err := q.runJob(context.Background(), job); err != nil {
+		t.Fatalf("fresh link should have worked: %v", err)
+	}
+	if refreshes != 1 {
+		t.Fatalf("expected one refresh, got %d", refreshes)
+	}
+	if job.URL != "https://a.test/fresh.m3u8" || len(job.Mirrors) != 1 {
+		t.Fatalf("job keeps stale addresses: %s %v", job.URL, job.Mirrors)
+	}
+}
+
+func TestRunJobRefreshesOnlyOnce(t *testing.T) {
+	refreshes, calls := 0, 0
+	q := testQueue(t, 2, func(context.Context, *queueJob, string) error {
+		calls++
+		return errNetwork
+	})
+	q.refresh = func(context.Context, *queueJob) ([]string, error) {
+		refreshes++
+		return []string{"https://a.test/fresh.m3u8"}, nil
+	}
+	job := &queueJob{Mode: "series", URL: "https://a.test/old.m3u8", PageURL: "https://site.test/show.html", Voice: "Voice", Season: "1", Episode: 2}
+	if err := q.runJob(context.Background(), job); err == nil {
+		t.Fatal("expected failure")
+	}
+	if refreshes != 1 {
+		t.Fatalf("refresh must happen once per run, got %d", refreshes)
+	}
+	// Три кола плюс одне додаткове зі свіжою адресою.
+	if calls != 4 {
+		t.Fatalf("expected 4 download calls, got %d", calls)
+	}
+}
+
+func TestRunJobSkipsRefreshWithoutPage(t *testing.T) {
+	q := testQueue(t, 0, func(context.Context, *queueJob, string) error { return errNetwork })
+	q.refresh = func(context.Context, *queueJob) ([]string, error) {
+		t.Fatal("refresh called for a job without page data")
+		return nil, nil
+	}
+	if err := q.runJob(context.Background(), &queueJob{Mode: "series", URL: "https://a.test/x.m3u8", Season: "1", Episode: 1}); err == nil {
+		t.Fatal("expected failure")
+	}
+}
+
+func TestRunJobContinuesWhenRefreshFails(t *testing.T) {
+	calls := 0
+	q := testQueue(t, 1, func(context.Context, *queueJob, string) error {
+		calls++
+		if calls == 2 {
+			return nil
+		}
+		return errNetwork
+	})
+	q.refresh = func(context.Context, *queueJob) ([]string, error) { return nil, errors.New("bridge offline") }
+	job := &queueJob{Mode: "series", URL: "https://a.test/x.m3u8", PageURL: "https://site.test/show.html", Voice: "Voice", Season: "1", Episode: 1}
+	if err := q.runJob(context.Background(), job); err != nil {
+		t.Fatalf("ordinary retry should still run: %v", err)
+	}
+}
+
+func TestEnqueueKeepsRefreshData(t *testing.T) {
+	q := testQueue(t, 0, nil)
+	jobs, err := q.enqueue(downloadRequest{Mode: "series", Title: "Show", Items: []downloadItem{{
+		URL: "https://a.test/1.m3u8", Season: "1", Episode: 1,
+		PageURL: "https://site.test/show.html", TranslatorID: "56", Quality: "1080p",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job := jobs[0]; job.PageURL != "https://site.test/show.html" || job.TranslatorID != "56" || job.Quality != "1080p" {
+		t.Fatalf("refresh data lost: %+v", job)
 	}
 }

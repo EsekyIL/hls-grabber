@@ -296,6 +296,14 @@ function urlForItem(item) {
   return urlsForItem(item)[0];
 }
 
+// Підпис якості, яку качатимемо. Черга пам'ятає його, щоб свіже посилання
+// замість протухлого було тієї самої якості.
+function qualityForItem(item) {
+  const streams = item.streams || [];
+  if (chosenQuality && streams.some(s => s.quality === chosenQuality)) return chosenQuality;
+  return streams.find(s => s.urls?.includes(item.url))?.quality || "";
+}
+
 function renderQualityPick() {
   const qualities = availableQualities();
   const wrap = $("#quality-pick");
@@ -556,7 +564,7 @@ $("#download-form").addEventListener("submit", async event => {
   const capturedItems = selectedInboxItems();
   const captured = capturedItems.map(urlForItem);
   const urls = captured.length ? captured : $("#urls").value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
-  const structuredItems = mode === "series" ? capturedItems.map(item => ({url: urlForItem(item), mirrors: urlsForItem(item).slice(1), voice: item.voice || "", season: item.season?.match(/\d+/)?.[0] || $("#season").value, episode: Number(item.episode?.match(/\d+/)?.[0] || 0)})).filter(item => item.episode > 0) : [];
+  const structuredItems = mode === "series" ? capturedItems.map(item => ({url: urlForItem(item), mirrors: urlsForItem(item).slice(1), pageUrl: item.pageUrl || "", translatorId: item.translatorId || "", quality: qualityForItem(item), voice: item.voice || "", season: item.season?.match(/\d+/)?.[0] || $("#season").value, episode: Number(item.episode?.match(/\d+/)?.[0] || 0)})).filter(item => item.episode > 0) : [];
   const request = {mode, source, title: $("#title").value.trim(), outputDir: $("#output").value.trim(), season: $("#season").value, startEpisode: $("#episode").value, url: mode === "movie" ? (captured[0] || $("#url").value.trim()) : $("#list-name").value.trim(), mirrors: mode === "movie" && capturedItems.length ? urlsForItem(capturedItems[0]).slice(1) : [], urls, items: structuredItems};
   if (mode === "movie" && !request.url) return toast("Додай посилання на відео", "error");
   if (mode === "series" && source === "direct" && !urls.length) return toast("Додай хоча б одне посилання", "error");

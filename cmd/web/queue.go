@@ -24,17 +24,22 @@ type queueJob struct {
 	// Mirrors — запасні адреси того самого потоку. Сайт віддає кілька CDN на
 	// одну якість («url1 or url2»), і коли перший відповідає 403 або рве
 	// з'єднання, решта зазвичай живі.
-	Mirrors   []string  `json:"mirrors,omitempty"`
-	Title     string    `json:"title"`
-	Voice     string    `json:"voice,omitempty"`
-	Season    string    `json:"season,omitempty"`
-	Episode   int       `json:"episode,omitempty"`
-	OutputDir string    `json:"outputDir,omitempty"`
-	State     string    `json:"state"`
-	Percent   float64   `json:"percent"`
-	Message   string    `json:"message,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Mirrors []string `json:"mirrors,omitempty"`
+	Title   string   `json:"title"`
+	Voice   string   `json:"voice,omitempty"`
+	// Звідки взялась адреса. За цими полями розширення бере свіжу, коли
+	// підписане посилання протухне, поки серія чекає в черзі.
+	PageURL      string    `json:"pageUrl,omitempty"`
+	TranslatorID string    `json:"translatorId,omitempty"`
+	Quality      string    `json:"quality,omitempty"`
+	Season       string    `json:"season,omitempty"`
+	Episode      int       `json:"episode,omitempty"`
+	OutputDir    string    `json:"outputDir,omitempty"`
+	State        string    `json:"state"`
+	Percent      float64   `json:"percent"`
+	Message      string    `json:"message,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 type queueManager struct {
@@ -52,6 +57,9 @@ type queueManager struct {
 	// download — сам виклик завантажувача. Полем, щоб тести могли
 	// підставити замість yt-dlp власну функцію.
 	download func(ctx context.Context, job *queueJob, url string) error
+	// refresh бере в розширення свіжі адреси задачі. Порожнє — оновлення
+	// немає, лишаються тільки повтори й дзеркала.
+	refresh func(ctx context.Context, job *queueJob) ([]string, error)
 }
 
 func newQueueManager(cfg *config.Config, dl *downloader.Downloader, publish func(downloader.DownloadStats)) (*queueManager, error) {
@@ -88,10 +96,11 @@ func (q *queueManager) enqueue(request downloadRequest) ([]*queueJob, error) {
 	defer q.mu.Unlock()
 	now := time.Now()
 	created := make([]*queueJob, 0)
-	add := func(url string, mirrors []string, voice, season string, episode int) {
+	add := func(url string, mirrors []string, voice, season string, episode int) *queueJob {
 		url = strings.TrimSpace(url)
 		job := &queueJob{ID: fmt.Sprintf("%d-%d", now.UnixNano(), len(q.jobs)+len(created)), Mode: request.Mode, URL: url, Mirrors: cleanMirrors(url, mirrors), Title: strings.TrimSpace(request.Title), Voice: strings.TrimSpace(voice), Season: strings.TrimSpace(season), Episode: episode, OutputDir: strings.TrimSpace(request.OutputDir), State: "pending", CreatedAt: now, UpdatedAt: now}
 		created = append(created, job)
+		return job
 	}
 	if request.Mode == "movie" {
 		add(request.URL, request.Mirrors, "", "", 0)
@@ -100,7 +109,10 @@ func (q *queueManager) enqueue(request downloadRequest) ([]*queueJob, error) {
 			if strings.TrimSpace(item.URL) == "" || strings.TrimSpace(item.Season) == "" || item.Episode < 1 {
 				continue
 			}
-			add(item.URL, item.Mirrors, item.Voice, item.Season, item.Episode)
+			job := add(item.URL, item.Mirrors, item.Voice, item.Season, item.Episode)
+			job.PageURL = strings.TrimSpace(item.PageURL)
+			job.TranslatorID = strings.TrimSpace(item.TranslatorID)
+			job.Quality = strings.TrimSpace(item.Quality)
 		}
 		if len(created) > 0 {
 			q.jobs = append(q.jobs, created...)
@@ -195,17 +207,23 @@ func (q *queueManager) worker() {
 	}
 }
 
-// runJob качає задачу з повторами й запасними адресами.
+// runJob качає задачу з повторами, запасними адресами й оновленням посилань.
 //
 // Одна спроба — це прохід по всіх адресах задачі: спершу основна, далі
 // дзеркала. Лише коли не вдалась жодна, чекаємо налаштовану затримку й
 // починаємо коло знову. Так дзеркало підхоплює одразу, без паузи, а пауза
 // дістається випадкам, коли лежить усе — тоді вона й справді допомагає.
+//
+// Після першого повністю провального кола задача один раз просить у
+// розширення свіжі адреси. Відмова всіх дзеркал разом — найчастіше не збій
+// мережі, а протухлий підпис посилання, і тоді повтори лише марнують час.
+// Коло зі свіжими адресами — додаткове, на «Повторні спроби» не впливає.
 func (q *queueManager) runJob(ctx context.Context, job *queueJob) error {
 	q.mu.Lock()
 	urls := append([]string{job.URL}, job.Mirrors...)
 	retries := q.cfg.Download.Retries
 	delay := time.Duration(q.cfg.Download.RetryDelaySec) * time.Second
+	refreshable := q.refresh != nil && canRefresh(job)
 	q.mu.Unlock()
 	if retries < 0 {
 		retries = 0
@@ -221,20 +239,53 @@ func (q *queueManager) runJob(ctx context.Context, job *queueJob) error {
 			case <-time.After(delay):
 			}
 		}
-		for index, url := range urls {
-			if index > 0 {
-				q.note(job, fmt.Sprintf("Дзеркало %d з %d", index+1, len(urls)))
-			}
-			err = q.download(ctx, job, url)
-			if err == nil || ctx.Err() != nil {
-				return err
-			}
-			if !retryable(err) {
-				return err
-			}
+		if err = q.tryURLs(ctx, job, urls); !worthRepeating(ctx, err) {
+			return err
+		}
+		if !refreshable {
+			continue
+		}
+		refreshable = false
+		q.note(job, "Усі адреси відмовили — беру свіже посилання через Firefox")
+		fresh, refreshErr := q.refresh(ctx, job)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if refreshErr != nil {
+			q.note(job, "Свіже посилання не отримано: "+refreshErr.Error())
+			continue
+		}
+		urls = fresh
+		q.mu.Lock()
+		job.URL, job.Mirrors = fresh[0], cleanMirrors(fresh[0], fresh[1:])
+		_ = q.saveLocked()
+		q.mu.Unlock()
+		if err = q.tryURLs(ctx, job, urls); !worthRepeating(ctx, err) {
+			return err
 		}
 	}
 	return err
+}
+
+// tryURLs проходить адреси по черзі до першої вдалої.
+func (q *queueManager) tryURLs(ctx context.Context, job *queueJob, urls []string) error {
+	var err error
+	for index, url := range urls {
+		if index > 0 {
+			q.note(job, fmt.Sprintf("Дзеркало %d з %d", index+1, len(urls)))
+		}
+		err = q.download(ctx, job, url)
+		if !worthRepeating(ctx, err) {
+			return err
+		}
+	}
+	return err
+}
+
+// worthRepeating — чи є сенс пробувати ще: була помилка, задачу не
+// скасували, і саме ця помилка повтором виправляється.
+func worthRepeating(ctx context.Context, err error) bool {
+	return err != nil && ctx.Err() == nil && retryable(err)
 }
 
 // retryable відрізняє збій мережі від помилки, яку повтор не виправить.

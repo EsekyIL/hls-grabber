@@ -213,6 +213,7 @@ async function apiScan(translatorIds) {
             title: pageMetadata().title,
             pageUrl: location.href,
             voice,
+            translatorId,
             season: item.season,
             episode: item.episode,
             streams
@@ -333,8 +334,38 @@ async function scan(translatorIds) {
   }
 }
 
+// Свіжі адреси однієї серії — для черги панелі, коли стара протухла.
+//
+// Один запит без власних повторів: черга сама вирішує, коли пробувати ще.
+// Озвучку шукаємо за номером, а якщо задача його не пам'ятає — за назвою.
+async function resolveEpisode({translatorId, voice, season, episode}) {
+  if (!cdnAvailable()) throw new Error("ця сторінка не віддає адрес через API сайту");
+  if (!translatorId && voice) {
+    const node = [...document.querySelectorAll(".b-translator__item")].find(item => nodeText(item) === voice);
+    translatorId = node?.dataset.translator_id || "";
+  }
+  // Серіал з однією озвучкою списку озвучок не має взагалі — тоді номер
+  // береться з ініціалізації плеєра.
+  const params = cdnPageParams();
+  translatorId = translatorId || params.translatorId;
+  if (!translatorId) throw new Error(`озвучку «${voice}» на сторінці не знайдено`);
+  const data = await cdnApi({
+    id: params.itemId, translator_id: translatorId,
+    season, episode, favs: params.favs, action: "get_stream"
+  });
+  const streams = cdnParseStreams(data.url);
+  if (!streams.length) throw new Error("сайт не віддав адрес для цієї серії");
+  return streams;
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, respond) => {
   if (message?.type === "page-metadata") { respond(pageMetadata()); return; }
+  if (message?.type === "resolve-episode") {
+    resolveEpisode(message)
+      .then(streams => respond({streams}))
+      .catch(error => respond({error: error.message}));
+    return true;
+  }
   if (message?.type === "get-catalog") { respond(catalog()); return; }
   if (message?.type === "cancel-scan") { scanCancelled = true; respond({ok: true}); return; }
   if (message?.type === "link-captured") {

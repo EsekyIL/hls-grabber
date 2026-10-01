@@ -290,6 +290,91 @@ async function runCommand(command, port) {
   }
 }
 
+// ── Свіжі посилання для черги ───────────────────────────────────────────
+//
+// Підписані адреси сайту протухають, поки серія чекає в черзі. Панель тоді
+// просить свіжу, і взяти її можна лише зі сторінки серіалу — з її куками.
+//
+// Окремий канал і окремий прапорець зайнятості: обхід серіалу триває
+// хвилинами, і якби оновлення стояли за ним у тій самій черзі, панель
+// давно перестала б чекати.
+
+let resolveBusy = false;
+
+async function reportResolved(port, payload) {
+  try {
+    await fetch(`http://127.0.0.1:${port}/api/bridge/resolved`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    });
+  } catch (_) {}
+}
+
+// Обробляє запити однієї сторінки в одній вкладці: коли протухла вся
+// черга, відкривати сайт заново на кожну серію було б і довго, і грубо.
+async function resolveForPage(url, commands, port) {
+  const fail = async error => {
+    for (const command of commands) await reportResolved(port, {id: command.id, error});
+  };
+  if (!(await hasSiteAccess())) {
+    await fail("розширенню не надано доступ до сайтів");
+    return;
+  }
+
+  let tab = null;
+  let borrowed = false;
+  try {
+    const [found] = await chrome.tabs.query({url: url.split("#")[0]});
+    if (found) { tab = found; borrowed = true; }
+  } catch (_) {}
+  try {
+    if (!tab) tab = await chrome.tabs.create({url, active: false});
+    await waitForContentScript(tab.id);
+    for (const command of commands) {
+      let answer;
+      try {
+        answer = await chrome.tabs.sendMessage(tab.id, {type: "resolve-episode", ...command});
+      } catch (error) {
+        answer = {error: error?.message || String(error)};
+      }
+      await reportResolved(port, {id: command.id, streams: answer?.streams || [], error: answer?.error || ""});
+    }
+  } catch (error) {
+    await fail(error?.message || String(error));
+  } finally {
+    if (tab && !borrowed) {
+      try { await chrome.tabs.remove(tab.id); } catch (_) {}
+    }
+  }
+}
+
+async function pollResolves() {
+  if (resolveBusy) return;
+  const {enabled, port} = await settings();
+  if (!enabled) return;
+
+  let commands = [];
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/bridge/resolves`);
+    if (!response.ok) return;
+    commands = await response.json();
+  } catch (_) { return; }
+  if (!commands.length) return;
+
+  resolveBusy = true;
+  try {
+    const byPage = new Map();
+    for (const command of commands) {
+      if (!byPage.has(command.url)) byPage.set(command.url, []);
+      byPage.get(command.url).push(command);
+    }
+    for (const [url, group] of byPage) await resolveForPage(url, group, port);
+  } finally {
+    resolveBusy = false;
+  }
+}
+
 async function pollCommands() {
   if (commandBusy) return;
   const {enabled, port} = await settings();
@@ -403,7 +488,9 @@ chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name !== "bridge-poll") return;
   heartbeat();
   pollCommands();
+  pollResolves();
 });
 
 heartbeat();
 pollCommands();
+pollResolves();
