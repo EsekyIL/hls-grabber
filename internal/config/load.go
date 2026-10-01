@@ -18,7 +18,6 @@ func Default() Config {
 			LogFile: DefaultLogFile(),
 		},
 		Download: DownloadConfig{
-			MaxParallel:   4,
 			Retries:       3,
 			RetryDelaySec: 5,
 		},
@@ -166,9 +165,6 @@ func (c Config) Validate() error {
 	}
 	if !SupportedLanguage(c.General.Language) {
 		return errors.New("unsupported language")
-	}
-	if c.Download.MaxParallel <= 0 {
-		return errors.New("max_parallel must be > 0")
 	}
 	if c.Download.Retries < 0 {
 		return errors.New("retries must be >= 0")

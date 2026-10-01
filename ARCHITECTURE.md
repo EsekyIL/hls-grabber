@@ -17,7 +17,7 @@ go build -o build/bin/hls-grabber-web.exe ./cmd/web
 Інший порт:
 
 ```powershell
-.\hls-grabber-web.cmd --port 8788
+.\hls-grabber-web.cmd --port 8790
 ```
 
 Увесь інтерфейс — шрифт, стилі, скрипти — вшитий у виконуваний файл через

@@ -115,6 +115,7 @@ type downloadRequest struct {
 	Source       string         `json:"source"`
 	URL          string         `json:"url"`
 	URLs         []string       `json:"urls"`
+	Mirrors      []string       `json:"mirrors"`
 	Items        []downloadItem `json:"items"`
 	Title        string         `json:"title"`
 	Season       string         `json:"season"`
@@ -123,10 +124,11 @@ type downloadRequest struct {
 }
 
 type downloadItem struct {
-	URL     string `json:"url"`
-	Voice   string `json:"voice"`
-	Season  string `json:"season"`
-	Episode int    `json:"episode"`
+	URL     string   `json:"url"`
+	Mirrors []string `json:"mirrors"`
+	Voice   string   `json:"voice"`
+	Season  string   `json:"season"`
+	Episode int      `json:"episode"`
 }
 
 func main() {

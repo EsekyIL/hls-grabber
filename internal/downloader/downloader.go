@@ -511,7 +511,31 @@ func (d *Downloader) downloadToFinal(ctx context.Context, url, title, finalPath,
 		return err
 	}
 
-	return moveFile(downloadedFile, finalPath)
+	target := uniquePath(finalPath)
+	if target != finalPath {
+		d.writeLog("INFO " + title + " already exists, saving as " + target)
+	}
+
+	return moveFile(downloadedFile, target)
+}
+
+// uniquePath повертає вільну назву поруч із path: «Назва (2).mp4» і далі.
+//
+// os.Rename мовчки замінює наявний файл, тож фільм із тією самою назвою
+// затирав попередній — іншу версію, інший рік, іншу озвучку. Серії сюди
+// зазвичай не доходять: їх пропускають ще до завантаження, якщо файл є.
+func uniquePath(path string) string {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return path
+	}
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	for n := 2; ; n++ {
+		candidate := fmt.Sprintf("%s (%d)%s", base, n, ext)
+		if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
+			return candidate
+		}
+	}
 }
 
 func (d *Downloader) registerTempDir(path string) {

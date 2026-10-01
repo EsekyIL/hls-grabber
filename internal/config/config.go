@@ -22,7 +22,6 @@ type PathsConfig struct {
 }
 
 type DownloadConfig struct {
-	MaxParallel   int `json:"max_parallel"`
 	Retries       int `json:"retries"`
 	RetryDelaySec int `json:"retry_delay_sec"`
 }

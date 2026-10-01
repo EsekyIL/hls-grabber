@@ -1,6 +1,10 @@
 package downloader
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseProgressLine(t *testing.T) {
 	line := "__PROGRESS__|5242880|10485760|0|2097152.0|12|8|16"
@@ -36,5 +40,21 @@ func TestParseProgressLine(t *testing.T) {
 func TestParseProgressLineRejectsNonProgress(t *testing.T) {
 	if _, ok := parseProgressLine("[download] Destination: file.mp4", "Mad Max"); ok {
 		t.Fatal("expected non-progress line to be ignored")
+	}
+}
+
+func TestUniquePathKeepsExistingFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Film.mp4")
+	if got := uniquePath(path); got != path {
+		t.Fatalf("free path changed: %s", got)
+	}
+	for _, name := range []string{"Film.mp4", "Film (2).mp4"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := uniquePath(path), filepath.Join(dir, "Film (3).mp4"); got != want {
+		t.Fatalf("got %s, want %s", got, want)
 	}
 }

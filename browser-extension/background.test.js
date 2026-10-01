@@ -41,7 +41,7 @@ function loadBackground() {
       create: async () => ({id: 1}), remove: noop,
     },
     storage: {
-      local: {get: async () => ({enabled: true, port: 8788})},
+      local: {get: async () => ({enabled: true, port: 8787})},
       session: {get: async () => ({}), set: noop, remove: noop},
     },
     action: {setBadgeBackgroundColor: noop, setBadgeText: noop},

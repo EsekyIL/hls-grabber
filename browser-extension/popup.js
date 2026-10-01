@@ -91,7 +91,7 @@ function startPolling() {
 async function init() {
   $("#grant").classList.toggle("hidden", await siteAccess());
 
-  const config = await chrome.storage.local.get({enabled: true, port: 8788});
+  const config = await chrome.storage.local.get({enabled: true, port: 8787});
   $("#enabled").checked = config.enabled;
   $("#enabledSwitch").classList.toggle("on", config.enabled);
   $("#port").value = config.port;

@@ -10,7 +10,7 @@ const scanContexts = new Map();
 const PLAYLIST_RE = /\.m3u8(?:[?#]|$)|[?&](?:type|format|ext)=m3u8|\/master(?:[?#]|$)/i;
 
 async function settings() {
-  return chrome.storage.local.get({enabled: true, port: 8788});
+  return chrome.storage.local.get({enabled: true, port: 8787});
 }
 
 async function heartbeat() {

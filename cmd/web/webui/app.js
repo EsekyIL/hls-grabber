@@ -281,12 +281,19 @@ function availableQualities() {
   return lists.reduce((common, list) => common.filter(q => list.includes(q)));
 }
 
-function urlForItem(item) {
+// Усі адреси вибраної якості: перша — основна, решта — дзеркала інших CDN.
+// Черга пробує їх по черзі, коли основна відповідає помилкою.
+function urlsForItem(item) {
   if (chosenQuality && Array.isArray(item.streams)) {
     const found = item.streams.find(s => s.quality === chosenQuality);
-    if (found?.urls?.length) return found.urls[0];
+    if (found?.urls?.length) return found.urls;
   }
-  return item.url;
+  const same = (item.streams || []).find(s => s.urls?.includes(item.url));
+  return same ? [item.url, ...same.urls.filter(url => url !== item.url)] : [item.url];
+}
+
+function urlForItem(item) {
+  return urlsForItem(item)[0];
 }
 
 function renderQualityPick() {
@@ -549,8 +556,8 @@ $("#download-form").addEventListener("submit", async event => {
   const capturedItems = selectedInboxItems();
   const captured = capturedItems.map(urlForItem);
   const urls = captured.length ? captured : $("#urls").value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
-  const structuredItems = mode === "series" ? capturedItems.map(item => ({url: urlForItem(item), voice: item.voice || "", season: item.season?.match(/\d+/)?.[0] || $("#season").value, episode: Number(item.episode?.match(/\d+/)?.[0] || 0)})).filter(item => item.episode > 0) : [];
-  const request = {mode, source, title: $("#title").value.trim(), outputDir: $("#output").value.trim(), season: $("#season").value, startEpisode: $("#episode").value, url: mode === "movie" ? (captured[0] || $("#url").value.trim()) : $("#list-name").value.trim(), urls, items: structuredItems};
+  const structuredItems = mode === "series" ? capturedItems.map(item => ({url: urlForItem(item), mirrors: urlsForItem(item).slice(1), voice: item.voice || "", season: item.season?.match(/\d+/)?.[0] || $("#season").value, episode: Number(item.episode?.match(/\d+/)?.[0] || 0)})).filter(item => item.episode > 0) : [];
+  const request = {mode, source, title: $("#title").value.trim(), outputDir: $("#output").value.trim(), season: $("#season").value, startEpisode: $("#episode").value, url: mode === "movie" ? (captured[0] || $("#url").value.trim()) : $("#list-name").value.trim(), mirrors: mode === "movie" && capturedItems.length ? urlsForItem(capturedItems[0]).slice(1) : [], urls, items: structuredItems};
   if (mode === "movie" && !request.url) return toast("Додай посилання на відео", "error");
   if (mode === "series" && source === "direct" && !urls.length) return toast("Додай хоча б одне посилання", "error");
   if (mode === "series" && source === "list" && !request.url) return toast("Вкажи файл зі списком", "error");
