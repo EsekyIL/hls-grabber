@@ -29,6 +29,16 @@ function Read-Secret([string]$prompt) {
 if (-not $env:WEB_EXT_API_KEY) { $env:WEB_EXT_API_KEY = Read-Host "JWT issuer" }
 if (-not $env:WEB_EXT_API_SECRET) { $env:WEB_EXT_API_SECRET = Read-Secret "JWT secret" }
 
+# Порожній Enter не має доходити до AMO: інакше скрипт мовчки завершувався,
+# і незрозуміло було, підписалось щось чи ні.
+if (-not $env:WEB_EXT_API_KEY -or -not $env:WEB_EXT_API_SECRET) {
+  Remove-Item Env:WEB_EXT_API_KEY, Env:WEB_EXT_API_SECRET -ErrorAction SilentlyContinue
+  Write-Host "Ключі не введено. Візьми їх тут: https://addons.mozilla.org/developers/addon/api/key/" -ForegroundColor Red
+  exit 1
+}
+
+Write-Host "Завантажую web-ext і надсилаю розширення в Mozilla. Перевірка може тривати до ~15 хвилин." -ForegroundColor Cyan
+
 $source = Join-Path $PSScriptRoot "browser-extension"
 $output = Join-Path $PSScriptRoot "build\xpi"
 
