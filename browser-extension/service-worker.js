@@ -574,6 +574,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.webRequest.onBeforeRequest.addListener(
   details => {
     if (!PLAYLIST_RE.test(details.url)) return;
+    // Власні запити розширення не ловимо. Фон сам читає master-плейлист
+    // ashdi, щоб дізнатись якості, і без цієї перевірки кожна така адреса
+    // ще раз приходила в панель — без озвучки й сезону, дублем серії.
+    if (playerReferers.has(details.url) || /^moz-extension:/.test(details.originUrl || "")) return;
     // Контекст знімаємо ТУТ, синхронно: це справжній момент старту запиту,
     // і жодного проміжку, за який сканер устиг би переїхати, тут немає.
     const context = details.tabId >= 0 ? (scanContexts.get(details.tabId) || {}) : {};
