@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "HLS Grabber Bridge",
-  "version": "1.8.3",
+  "version": "1.9.0",
   "description": "Передає знайдені M3U8-посилання у локальну панель HLS Grabber.",
   "permissions": [
     "storage",
     "webRequest",
+    "webRequestBlocking",
     "tabs",
     "alarms",
     "scripting"
@@ -27,6 +28,7 @@
       ],
       "js": [
         "cdn-api.js",
+        "uakino.js",
         "content-script.js"
       ],
       "run_at": "document_idle"

@@ -232,6 +232,83 @@ async function apiScan(translatorIds) {
   return {completed, missed, retries, via: "api", cancelled: scanCancelled, elapsedMs: Date.now() - started};
 }
 
+// ── Обхід uakino ────────────────────────────────────────────────────────
+//
+// Список серій береться з плейлиста сторінки, а адреса відео — зі сторінки
+// плеєра ashdi кожної серії. Помічники — у uakino.js. Темп і повтори ті ж,
+// що й для HDRezka: на серію тут теж один запит, тільки до плеєра.
+
+let uakinoCache = null;
+
+async function uakinoLoad() {
+  if (!uakinoCache) uakinoCache = await uakinoPlaylist();
+  return uakinoCache;
+}
+
+async function uakinoCatalog() {
+  const playlist = await uakinoLoad();
+  return {
+    title: uakinoTitle(),
+    supported: playlist.episodes.length > 0,
+    translators: playlist.voices.map(voice => ({id: voice.id, name: voice.name, active: false}))
+  };
+}
+
+async function uakinoScan(translatorIds) {
+  const started = Date.now();
+  const missed = [];
+  let completed = 0;
+  let retries = 0;
+  let pace = API_PACE_MIN;
+  const playlist = await uakinoLoad();
+  const title = uakinoTitle();
+  const season = uakinoSeason();
+
+  for (const voiceId of translatorIds) {
+    if (scanCancelled) break;
+    for (const item of playlist.episodes.filter(episode => episode.voiceId === voiceId)) {
+      if (scanCancelled) break;
+      let streams = null;
+      let reason = "";
+      for (let attempt = 1; attempt <= MAX_TRIES && !streams && !scanCancelled; attempt++) {
+        if (attempt > 1) {
+          retries++;
+          await sleep(RETRY_BACKOFF[attempt - 2]);
+        }
+        try { streams = await uakinoStreams(item.file); }
+        catch (error) { reason = error.message; }
+      }
+
+      if (streams) {
+        completed++;
+        pace = Math.max(API_PACE_MIN, pace - PACE_DOWN);
+        await chrome.runtime.sendMessage({
+          type: "cdn-found",
+          payload: {title, pageUrl: location.href, voice: item.voice, translatorId: voiceId, season, episode: item.episode, streams}
+        });
+      } else {
+        missed.push({voice: item.voice, season, episode: item.episode, reason: reason || "порожня відповідь"});
+        pace = Math.min(API_PACE_MAX, pace + PACE_UP);
+      }
+
+      await chrome.runtime.sendMessage({type: "scan-progress", completed});
+      await sleep(pace);
+    }
+  }
+
+  return {completed, missed, retries, via: "uakino", cancelled: scanCancelled, elapsedMs: Date.now() - started};
+}
+
+async function uakinoResolve({translatorId, voice, episode}) {
+  // Свіжий список, а не з кешу: протухнути могла й адреса плеєра.
+  uakinoCache = null;
+  const playlist = await uakinoLoad();
+  const item = playlist.episodes.find(entry =>
+    (translatorId ? entry.voiceId === translatorId : entry.voice === voice) && entry.episode === String(episode));
+  if (!item) throw new Error(`серії ${episode} озвучки «${voice}» на сторінці немає`);
+  return uakinoStreams(item.file);
+}
+
 async function scan(translatorIds) {
   // Сторінка має вважати себе видимою на весь прохід — інакше у фоновій
   // вкладці плеєр не почне вантажити плейлист, і сканувати доведеться,
@@ -339,6 +416,7 @@ async function scan(translatorIds) {
 // Один запит без власних повторів: черга сама вирішує, коли пробувати ще.
 // Озвучку шукаємо за номером, а якщо задача його не пам'ятає — за назвою.
 async function resolveEpisode({translatorId, voice, season, episode}) {
+  if (uakinoAvailable()) return uakinoResolve({translatorId, voice, episode});
   if (!cdnAvailable()) throw new Error("ця сторінка не віддає адрес через API сайту");
   if (!translatorId && voice) {
     const node = [...document.querySelectorAll(".b-translator__item")].find(item => nodeText(item) === voice);
@@ -366,7 +444,15 @@ chrome.runtime.onMessage.addListener((message, _sender, respond) => {
       .catch(error => respond({error: error.message}));
     return true;
   }
-  if (message?.type === "get-catalog") { respond(catalog()); return; }
+  if (message?.type === "get-catalog") {
+    if (!uakinoAvailable()) { respond(catalog()); return; }
+    // Плейлист uakino вантажиться окремим запитом, тож відповідь асинхронна.
+    // Помилку віддаємо як «не підтримується» з причиною, а не тишею.
+    uakinoCatalog()
+      .then(respond)
+      .catch(error => respond({title: uakinoTitle(), supported: false, translators: [], error: error.message}));
+    return true;
+  }
   if (message?.type === "cancel-scan") { scanCancelled = true; respond({ok: true}); return; }
   if (message?.type === "link-captured") {
     if (pendingLink && pendingLink.seq === message.seq) pendingLink.settle(message.url);
@@ -377,7 +463,7 @@ chrome.runtime.onMessage.addListener((message, _sender, respond) => {
     // Через API, коли сторінка його підтримує; інакше старою клікалкою.
     // Перевірка дешева — наявність cdnItemId у розмітці, — і робить перехід
     // непомітним: той самий виклик, той самий формат відповіді.
-    const runner = cdnAvailable() ? apiScan : scan;
+    const runner = uakinoAvailable() ? uakinoScan : cdnAvailable() ? apiScan : scan;
     if (scanRunning) { respond({error: "Сканування вже виконується"}); return; }
     scanRunning = true; scanCancelled = false;
     Promise.resolve()

@@ -107,7 +107,7 @@ func TestExportedFilesCoverEmbedded(t *testing.T) {
 	for _, name := range names {
 		have[name] = true
 	}
-	for _, needed := range []string{"manifest.json", "service-worker.js", "content-script.js", "cdn-api.js", "popup.html", "popup.js", "stay-awake.js"} {
+	for _, needed := range []string{"manifest.json", "service-worker.js", "content-script.js", "cdn-api.js", "uakino.js", "popup.html", "popup.js", "stay-awake.js"} {
 		if !have[needed] {
 			t.Errorf("%s не потрапляє в теку для Firefox", needed)
 		}

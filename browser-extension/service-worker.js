@@ -197,7 +197,7 @@ async function waitForContentScript(tabId, timeoutMs = 40000) {
       try {
         await chrome.scripting.executeScript({
           target: {tabId},
-          files: ["cdn-api.js", "content-script.js"],
+          files: ["cdn-api.js", "uakino.js", "content-script.js"],
         });
         injectError = "";
       } catch (error) {
@@ -261,7 +261,7 @@ async function runCommand(command, port) {
   }
   try {
     const catalog = await waitForContentScript(tab.id);
-    if (!catalog.supported) throw new Error("на цій сторінці адаптер не знайшов серіал");
+    if (!catalog.supported) throw new Error(catalog.error || "на цій сторінці адаптер не знайшов серіал");
 
     if (command.kind === "probe") {
       await report(port, {
@@ -287,6 +287,50 @@ async function runCommand(command, port) {
     if (!borrowed) {
       try { await chrome.tabs.remove(tab.id); } catch (_) {}
     }
+  }
+}
+
+// ── Сторінки зовнішніх плеєрів ──────────────────────────────────────────
+//
+// uakino показує відео через ashdi: адреса .m3u8 лежить у сторінці плеєра на
+// чужому домені. Зі сторінки сайту її не прочитати — CORS, — а фон
+// розширення з доступом до сайтів може.
+//
+// Плеєр перевіряє, звідки його вбудували, і без Referer сайту віддає
+// заглушку. fetch не дозволяє підставити чужий Referer, тож додаємо його
+// перехопленням запиту — лише нашим, фоновим (tabId -1), і лише для адрес,
+// які зараз запитуємо.
+const playerReferers = new Map();
+
+try {
+  chrome.webRequest.onBeforeSendHeaders.addListener(
+    details => {
+      const referer = playerReferers.get(details.url);
+      if (details.tabId !== -1 || !referer) return {};
+      const headers = details.requestHeaders.filter(header => header.name.toLowerCase() !== "referer");
+      headers.push({name: "Referer", value: referer});
+      return {requestHeaders: headers};
+    },
+    {urls: ["<all_urls>"]},
+    ["blocking", "requestHeaders"]
+  );
+} catch (_) {
+  // Без webRequestBlocking (Chromium MV3) запит піде без Referer. Плеєр, що
+  // його не вимагає, однаково відповість; той, що вимагає, дасть зрозумілу
+  // помилку «не знайшлося адреси відео».
+}
+
+async function fetchPlayerPage(url, referer) {
+  try {
+    if (!/^https?:\/\//.test(url)) throw new Error("незрозуміла адреса плеєра");
+    playerReferers.set(url, referer || "");
+    const response = await fetch(url, {credentials: "omit", cache: "no-store"});
+    if (!response.ok) throw new Error(`плеєр відповів ${response.status}`);
+    return {html: await response.text()};
+  } catch (error) {
+    return {error: error?.message || String(error)};
+  } finally {
+    playerReferers.delete(url);
   }
 }
 
@@ -415,6 +459,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   }
   if (message?.type === "cdn-found") sendStreams(message.payload);
+  if (message?.type === "player-page") {
+    fetchPlayerPage(message.url, message.referer).then(sendResponse);
+    return true;
+  }
   if (message?.type === "scan-progress") {
     scanState = {
       ...scanState,
