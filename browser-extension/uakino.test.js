@@ -58,3 +58,22 @@ test("справжня сторінка плеєра ashdi", () => {
   // Саме file, а не poster чи інша адреса зі сторінки.
   assert.match(streams[0].urls[0], /^https:\/\/ashdi\.vip\/video04\/.*_67595\/hls\/.*\/index\.m3u8$/);
 });
+
+test("вкладені рівні: озвучка — найглибший, сезон із назви батька", () => {
+  const html = `
+    <div class="playlists-lists">
+      <div class="playlists-items"><ul><li data-id="0">Сезон 1</li><li data-id="1">Сезон 2</li></ul></div>
+      <div class="playlists-items"><ul><li data-id="0_0">FanVoxUA</li><li data-id="1_0">FanVoxUA</li><li data-id="1_1">Кіото</li></ul></div>
+    </div>
+    <div class="playlists-videos"><div class="playlists-items"><ul>
+      <li data-file="//ashdi.vip/vod/1" data-id="0_0" data-voice="FanVoxUA">Серія 1</li>
+      <li data-file="//ashdi.vip/vod/2" data-id="1_0" data-voice="FanVoxUA">Серія 1</li>
+      <li data-file="//ashdi.vip/vod/3" data-id="1_1" data-voice="Кіото">Серія 1</li>
+    </ul></div></div>`;
+  const {voices} = uakinoParsePlaylist(html);
+  assert.deepStrictEqual(voices, [
+    {id: "0_0", name: "Сезон 1 · FanVoxUA", season: "1"},
+    {id: "1_0", name: "Сезон 2 · FanVoxUA", season: "2"},
+    {id: "1_1", name: "Сезон 2 · Кіото", season: "2"}
+  ]);
+});

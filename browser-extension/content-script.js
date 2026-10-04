@@ -266,6 +266,9 @@ async function uakinoScan(translatorIds) {
 
   for (const voiceId of translatorIds) {
     if (scanCancelled) break;
+    // Сезон із назви рівня плейлиста («Сезон 2 · Озвучка»), якщо він там є;
+    // інакше — сезон самої сторінки.
+    const voiceSeason = playlist.voices.find(voice => voice.id === voiceId)?.season || season;
     for (const item of playlist.episodes.filter(episode => episode.voiceId === voiceId)) {
       if (scanCancelled) break;
       let streams = null;
@@ -284,10 +287,10 @@ async function uakinoScan(translatorIds) {
         pace = Math.max(API_PACE_MIN, pace - PACE_DOWN);
         await chrome.runtime.sendMessage({
           type: "cdn-found",
-          payload: {title, pageUrl: location.href, voice: item.voice, translatorId: voiceId, season, episode: item.episode, streams}
+          payload: {title, pageUrl: location.href, voice: item.voice, translatorId: voiceId, season: voiceSeason, episode: item.episode, streams}
         });
       } else {
-        missed.push({voice: item.voice, season, episode: item.episode, reason: reason || "порожня відповідь"});
+        missed.push({voice: item.voice, season: voiceSeason, episode: item.episode, reason: reason || "порожня відповідь"});
         pace = Math.min(API_PACE_MAX, pace + PACE_UP);
       }
 

@@ -44,10 +44,17 @@ function uakinoDecode(text) {
 
 // Розбирає HTML плейлиста в {voices, episodes}.
 //
-// Список озвучок буває відсутній — у серіалу з однією озвучкою сайт його
-// не малює. Тоді озвучки збираємо з самих серій: data-id + data-voice.
+// Списків над серіями буває кілька рівнів: скрипт сайту проходить
+// .playlists-lists .playlists-items по черзі, і кожен наступний рівень
+// фільтрує за префіксом data-id попереднього («0» → «0_0», «0_1»). Серія ж
+// посилається на найглибший рівень. Тому озвучка — це лише той пункт, на
+// який посилаються серії, а назви його батьків (часто «Сезон 2») йдуть у
+// підпис і, якщо там номер сезону, у сам сезон.
+//
+// Списку озвучок буває й зовсім немає — у серіалу з однією озвучкою сайт
+// його не малює. Тоді назву беремо з data-voice самих серій.
 function uakinoParsePlaylist(html) {
-  const voices = [];
+  const labels = new Map();
   const episodes = [];
   for (const match of String(html || "").matchAll(/<li\b([^>]*)>([\s\S]*?)<\/li>/gi)) {
     const attrs = uakinoAttrs(match[1]);
@@ -61,12 +68,19 @@ function uakinoParsePlaylist(html) {
         title: text,
         episode: (text.match(/\d+/) || [""])[0]
       });
-    } else if (text && !voices.some(voice => voice.id === attrs["data-id"])) {
-      voices.push({id: attrs["data-id"], name: text});
+    } else if (text && !labels.has(attrs["data-id"])) {
+      labels.set(attrs["data-id"], text);
     }
   }
+  const voices = [];
   for (const item of episodes) {
-    if (!voices.some(voice => voice.id === item.voiceId)) voices.push({id: item.voiceId, name: item.voice || item.voiceId});
+    if (voices.some(voice => voice.id === item.voiceId)) continue;
+    const parts = item.voiceId.split("_");
+    const chain = parts.map((_, index) => labels.get(parts.slice(0, index + 1).join("_"))).filter(Boolean);
+    const voice = {id: item.voiceId, name: chain.join(" · ") || item.voice || item.voiceId};
+    const season = chain.map(label => label.match(/(\d+)\s*сезон|сезон\s*(\d+)/i)).find(Boolean);
+    if (season) voice.season = season[1] || season[2];
+    voices.push(voice);
   }
   return {voices, episodes};
 }
@@ -135,27 +149,44 @@ function uakinoTitleRaw() {
 
 // Плейлист сторінки.
 //
-// Спершу — з уже намальованої сторінки: скрипт сайту міг устигнути. Якщо ні,
-// прокручуємо до блоку (частина збірок вантажить його лише на показі) і
-// чекаємо. І вже наостанок питаємо ендпоінт самі.
+// Скрипт сайту вантажить його лише тоді, коли блок потрапляє на екран
+// (IntersectionObserver). У фоновій вкладці, яку відкриває панель, цього
+// може не статись узагалі, тож чекати на нього — марно. Порядок такий:
+// уже намальований список, якщо людина гортала сторінку; далі той самий
+// запит, що робить сайт; і лише якщо він не вдався — прокрутка до блоку й
+// очікування, раптом сайт змінив адресу запиту.
 async function uakinoPlaylist() {
-  const fromDom = () => {
-    const box = document.querySelector(".playlists-ajax");
-    return box && box.querySelector("li[data-file]") ? uakinoParsePlaylist(box.innerHTML) : null;
-  };
+  const box = document.querySelector(".playlists-ajax");
+  const fromDom = () => box && box.querySelector("li[data-file]") ? uakinoParsePlaylist(box.innerHTML) : null;
   let playlist = fromDom();
   if (playlist?.episodes.length) return playlist;
 
-  document.querySelector(".playlists-ajax")?.scrollIntoView({block: "center"});
+  let failure = "";
+  try {
+    playlist = uakinoParsePlaylist(await uakinoFetchPlaylist(box));
+    if (playlist.episodes.length) return playlist;
+    failure = "у списку серій порожньо";
+  } catch (error) {
+    failure = error.message;
+  }
+
+  box?.scrollIntoView({block: "center"});
   for (let waited = 0; waited < 8000; waited += 400) {
     await new Promise(resolve => setTimeout(resolve, 400));
     playlist = fromDom();
     if (playlist?.episodes.length) return playlist;
   }
+  throw new Error(failure || "список серій не завантажився");
+}
 
-  const box = document.querySelector(".playlists-ajax");
-  const root = (document.documentElement.innerHTML.match(/dle_root\s*=\s*['"]([^'"]*)['"]/) || [null, "/"])[1] || "/";
-  const params = new URLSearchParams({news_id: box?.dataset.news_id || "", xfield: box?.dataset.xfname || "playlist", time: String(Date.now())});
+// Той самий запит, що й у скрипта сайту:
+//   GET /engine/ajax/playlists.php?news_id=…&xfield=…&time=dle_edittime
+// time — позначка редагування новини, сайт за нею кешує відповідь.
+async function uakinoFetchPlaylist(box) {
+  const html = document.documentElement.innerHTML;
+  const root = (html.match(/dle_root\s*=\s*['"]([^'"]*)['"]/) || [null, "/"])[1] || "/";
+  const edited = (html.match(/dle_edittime\s*=\s*['"]?(\d+)/) || [null, ""])[1] || String(Math.floor(Date.now() / 1000));
+  const params = new URLSearchParams({news_id: box?.dataset.news_id || "", xfield: box?.dataset.xfname || "playlist", time: edited});
   const response = await fetch(`${location.origin}${root.endsWith("/") ? root : root + "/"}engine/ajax/playlists.php?${params}`, {
     credentials: "include",
     headers: {"X-Requested-With": "XMLHttpRequest"}
@@ -163,9 +194,7 @@ async function uakinoPlaylist() {
   if (!response.ok) throw new Error(`список серій: сайт відповів ${response.status}`);
   const data = await response.json();
   if (!data?.success) throw new Error(data?.message || "сайт не віддав список серій");
-  playlist = uakinoParsePlaylist(data.response);
-  if (!playlist.episodes.length) throw new Error("у списку серій порожньо");
-  return playlist;
+  return data.response;
 }
 
 // Адреси потоку однієї серії. Сторінку плеєра бере фон розширення: з
