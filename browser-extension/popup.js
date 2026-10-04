@@ -88,6 +88,20 @@ function startPolling() {
   }, 700);
 }
 
+// Квадратна галочка, як у панелі: стан видно кольором, а не лише пташкою.
+function checkMark() {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const mark = document.createElement("span");
+  mark.className = "check";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  const path = document.createElementNS(svgNS, "path");
+  path.setAttribute("d", "M20 6 9 17l-5-5");
+  svg.append(path);
+  mark.append(svg);
+  return mark;
+}
+
 async function init() {
   $("#grant").classList.toggle("hidden", await siteAccess());
 
@@ -132,7 +146,7 @@ async function init() {
       box.checked = Boolean(item.active);
       const name = document.createElement("span");
       name.textContent = item.name;
-      label.append(box, name);
+      label.append(box, checkMark(), name);
       return label;
     }));
   } catch (_) {
