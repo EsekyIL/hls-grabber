@@ -49,3 +49,12 @@ test("сторінка плеєра без конфігу: будь-яка ад�
   assert.deepStrictEqual(uakinoPlayerStreams(`<video src="https://b.test/v/master.m3u8?t=1"></video>`), [{quality: "auto", urls: ["https://b.test/v/master.m3u8?t=1"]}]);
   assert.deepStrictEqual(uakinoPlayerStreams("<p>Відео недоступне</p>"), []);
 });
+
+test("справжня сторінка плеєра ashdi", () => {
+  const html = fs.readFileSync(path.join(__dirname, "testdata", "ashdi-player.html"), "utf8");
+  const streams = uakinoPlayerStreams(html);
+  assert.strictEqual(streams.length, 1);
+  assert.strictEqual(streams[0].quality, "auto");
+  // Саме file, а не poster чи інша адреса зі сторінки.
+  assert.match(streams[0].urls[0], /^https:\/\/ashdi\.vip\/video04\/.*_67595\/hls\/.*\/index\.m3u8$/);
+});
