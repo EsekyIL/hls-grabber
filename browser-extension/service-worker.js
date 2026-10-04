@@ -13,15 +13,49 @@ async function settings() {
   return chrome.storage.local.get({enabled: true, port: 8787});
 }
 
-async function heartbeat() {
-  const {port} = await settings();
+// Порти, де панель шукаємо, якщо вона не відповідає на збереженому.
+//
+// Досі порт був лише ручний: запустив панель з -port 8899 і забув вписати те
+// саме число в попап — і Діагностика чесно казала «Не бачу», хоча обидві
+// сторони працювали. Тепер розширення обходить звичні порти й запам'ятовує
+// той, де відповіла саме панель (heartbeat з {"ok": true}, а не будь-яка
+// програма на цьому порту).
+const PANEL_PORTS = [8787, 8899, 8788, 8789, 8790, 8080, 8888, 9000];
+
+async function pingPanel(port) {
   try {
-    await fetch(`http://127.0.0.1:${port}/api/bridge/heartbeat`, {
+    const response = await fetch(`http://127.0.0.1:${port}/api/bridge/heartbeat`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({version: chrome.runtime.getManifest().version, browser: "Firefox"})
+      body: JSON.stringify({version: chrome.runtime.getManifest().version, browser: "Firefox"}),
+      signal: AbortSignal.timeout(2000)
     });
-  } catch (_) {}
+    if (!response.ok) return false;
+    const data = await response.json().catch(() => null);
+    return data?.ok === true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Один пошук за раз: heartbeat приходить і від будильника, і від кожної
+// вкладки, і без цього вимкнена панель давала б десятки паралельних обходів.
+let discovering = null;
+
+async function heartbeat() {
+  const {port} = await settings();
+  if (await pingPanel(port)) return;
+  if (discovering) return discovering;
+  discovering = (async () => {
+    for (const candidate of PANEL_PORTS) {
+      if (candidate === port) continue;
+      if (await pingPanel(candidate)) {
+        await chrome.storage.local.set({port: candidate});
+        return;
+      }
+    }
+  })().finally(() => { discovering = null; });
+  return discovering;
 }
 
 async function sendURL(url, tabId, context) {

@@ -158,6 +158,9 @@ $("#enabledSwitch").addEventListener("click", event => {
 $("#save").addEventListener("click", async () => {
   await chrome.storage.local.set({enabled: $("#enabled").checked, port: Number($("#port").value)});
   setStatus("Збережено.", "ok");
+  // Одразу даємо панелі знати, а не через 15 секунд. Якщо на цьому порту
+  // панелі нема, фон сам знайде її на звичних і поправить число.
+  chrome.runtime.sendMessage({type: "bridge-heartbeat"}).catch(() => {});
 });
 
 $("#scan").addEventListener("click", async () => {
