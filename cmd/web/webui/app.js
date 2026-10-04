@@ -1026,6 +1026,20 @@ document.addEventListener("click", async event => {
 
 $("#refresh-diagnostics").addEventListener("click", () => loadDiagnostics(true));
 
+// Панель тепер живе без консолі, тож вимикається звідси. Активне
+// завантаження обривається, але задача лишається в черзі й продовжиться
+// після наступного запуску.
+$("#shutdown-panel").addEventListener("click", async () => {
+  if (!confirm("Вимкнути панель? Поточне завантаження зупиниться й продовжиться після наступного запуску.")) return;
+  try {
+    await api("/api/shutdown", {method: "POST"});
+    events.close();
+    document.body.innerHTML = '<main style="display:grid;place-items:center;height:100vh;color:#a1a1aa;font:15px Geist,system-ui,sans-serif;text-align:center">Панель вимкнено.<br>Запусти hls-grabber-web.cmd, щоб відкрити знову.</main>';
+  } catch (error) {
+    toast(`Не вдалося вимкнути: ${error.message}`, "error");
+  }
+});
+
 // ── Дії з чергою ─────────────────────────────────────────────────────────
 
 async function queueAction(id, action) {

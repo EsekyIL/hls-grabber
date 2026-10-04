@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"mime"
@@ -149,6 +150,12 @@ func main() {
 	port := flag.Int("port", 8787, "local server port")
 	flag.Parse()
 
+	// Збірка без консолі (-H=windowsgui) нікуди не показує ні log.Printf, ні
+	// log.Fatal. Тому повідомлення самої панелі йдуть і в download.log: файл
+	// першим, бо MultiWriter зупиняється на першому ж writer'і з помилкою, а
+	// stderr без консолі саме такий.
+	log.SetOutput(io.MultiWriter(panelLog{}, os.Stderr))
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
@@ -178,11 +185,17 @@ func main() {
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 
 	address := fmt.Sprintf("127.0.0.1:%d", *port)
+	url := "http://" + address
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
+		// Без консолі повторний запуск мовчки помирав би на зайнятому порту.
+		// Якщо там уже наша панель, просто відкриваємо її.
+		if panelRunning(url) {
+			_ = openURL(url)
+			return
+		}
 		log.Fatal(err)
 	}
-	url := "http://" + address
 	log.Printf("HLS Grabber is ready at %s", url)
 	if *openBrowser {
 		go func() {
@@ -197,6 +210,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/config", s.getConfig)
 	mux.HandleFunc("PUT /api/config", s.saveConfig)
 	mux.HandleFunc("GET /api/status", s.getStatus)
+	mux.HandleFunc("POST /api/shutdown", s.shutdown)
 	mux.HandleFunc("GET /api/events", s.events)
 	mux.HandleFunc("POST /api/download", s.startDownload)
 	mux.HandleFunc("POST /api/pause", func(w http.ResponseWriter, _ *http.Request) { writeResult(w, s.dl.Pause()) })
@@ -573,4 +587,44 @@ func openURL(url string) error {
 	default:
 		return exec.Command("xdg-open", url).Start()
 	}
+}
+
+// panelLog дописує повідомлення log у download.log.
+type panelLog struct{}
+
+func (panelLog) Write(p []byte) (int, error) {
+	if err := config.AppendLog(config.DefaultLogFile(), "INFO", "PANEL "+strings.TrimSpace(string(p))); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+// panelRunning перевіряє, що на адресі відповідає саме HLS Grabber.
+func panelRunning(url string) bool {
+	client := http.Client{Timeout: 2 * time.Second}
+	response, err := client.Get(url + "/api/status")
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+	return response.StatusCode == http.StatusOK
+}
+
+// shutdown вимикає панель із самої панелі: без консолі закрити її більше
+// нічим.
+//
+// Процес yt-dlp вбиваємо, інакше він лишився б сиротою й докачував би
+// нікуди. Чергу тримаємо заблокованою до самого виходу, щоб воркер не
+// встиг записати вбите завантаження як помилку: у файлі задача лишається
+// «running», а при наступному запуску черга поверне її в «pending».
+func (s *server) shutdown(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		s.queue.mu.Lock()
+		s.dl.CancelActive()
+		s.dl.CleanupActiveTemp()
+		log.Printf("Панель вимкнено з інтерфейсу")
+		os.Exit(0)
+	}()
 }

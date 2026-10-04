@@ -6,7 +6,7 @@
 ## Збірка й запуск
 
 ```powershell
-go build -o build/bin/hls-grabber-web.exe ./cmd/web
+go build -ldflags "-H=windowsgui" -o build/bin/hls-grabber-web.exe ./cmd/web
 .\hls-grabber-web.cmd
 ```
 

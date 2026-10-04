@@ -33,9 +33,15 @@ yt-dlp і ffmpeg ставити не треба, панель качає їх с
 ## Запуск
 
 ```powershell
-go build -o build/bin/hls-grabber-web.exe ./cmd/web
+go build -ldflags "-H=windowsgui" -o build/bin/hls-grabber-web.exe ./cmd/web
 .\hls-grabber-web.cmd
 ```
+
+Панель працює без вікна консолі: `.cmd` лише запускає її й відкриває
+браузер. Вимикається вона в **Діагностиці → «Вимкнути панель»**; незакінчене
+завантаження продовжиться після наступного запуску. Повторний запуск, коли
+панель уже працює, просто відкриває її. Що відбувається всередині, видно в
+`%TEMP%\hls-grabber\download.log`.
 
 Далі:
 
