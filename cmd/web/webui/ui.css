@@ -840,6 +840,11 @@ input[type=number] { -moz-appearance: textfield; }
 .hrow__copy b { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .hrow__copy small { overflow: hidden; color: var(--text-3); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .hrow.error .hrow__copy small { color: #fda4af; }
+/* Помилку показуємо повністю й даємо виділити. В один рядок з трикрапкою
+ * лишалось лише «No such file or directory: 'C:\\Users\\…», а повний текст
+ * сидів у підказці, з якої нічого не скопіюєш. */
+.hrow.error { align-items: start; }
+.hrow.error .hrow__copy small { overflow: visible; white-space: normal; overflow-wrap: anywhere; user-select: text; cursor: text; }
 .hrow time { color: var(--text-3); font: 12px var(--mono); white-space: nowrap; }
 
 .empty { display: grid; justify-items: center; gap: 6px; padding: 64px 20px; color: var(--text-3); text-align: center; }
