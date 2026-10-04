@@ -121,9 +121,20 @@ async function init() {
       return;
     }
     $("#voicesTitle").textContent = `Озвучення (${catalog.translators.length})`;
-    $("#voices").innerHTML = catalog.translators.map(item =>
-      `<label class="voice"><input type="checkbox" value="${item.id}" ${item.active ? "checked" : ""}><span>${item.name}</span></label>`
-    ).join("");
+    // Назви озвучок приходять зі сторінки сайту, тож будуємо вузли, а не
+    // вставляємо їх як HTML.
+    $("#voices").replaceChildren(...catalog.translators.map(item => {
+      const label = document.createElement("label");
+      label.className = "voice";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.value = item.id;
+      box.checked = Boolean(item.active);
+      const name = document.createElement("span");
+      name.textContent = item.name;
+      label.append(box, name);
+      return label;
+    }));
   } catch (_) {
     $("#voicesTitle").hidden = true;
     $("#scan").disabled = true;

@@ -6,7 +6,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
-const {uakinoParsePlaylist, uakinoPlayerStreams} = require("./uakino.js");
+const {uakinoParsePlaylist, uakinoPlayerStreams, uakinoMasterVariants} = require("./uakino.js");
 
 const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, "testdata", "uakino-playlist.json"), "utf8"));
 
@@ -76,4 +76,28 @@ test("вкладені рівні: озвучка — найглибший, се
     {id: "1_0", name: "Сезон 2 · FanVoxUA", season: "2"},
     {id: "1_1", name: "Сезон 2 · Кіото", season: "2"}
   ]);
+});
+
+test("master-плейлист ashdi: кожна якість окремо, від меншої до більшої", () => {
+  const master = [
+    "#EXTM3U",
+    '#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720,CODECS="avc1.64001f,mp4a.40.2"',
+    "https://jk19ocmjeoyql3tj.ashdi.vip/content/stream/serials/kuroko/hls/720/index.m3u8",
+    "#EXT-X-STREAM-INF:BANDWIDTH=1200000,RESOLUTION=854x480",
+    "https://jk19ocmjeoyql3tj.ashdi.vip/content/stream/serials/kuroko/hls/480/index.m3u8",
+    "#EXT-X-STREAM-INF:BANDWIDTH=900000",
+    "360/index.m3u8"
+  ].join("\n");
+  const base = "https://ashdi.vip/video04/kuroko/hls/token/index.m3u8";
+  assert.deepStrictEqual(uakinoMasterVariants(master, base), [
+    {quality: "360p", urls: ["https://ashdi.vip/video04/kuroko/hls/token/360/index.m3u8"]},
+    {quality: "480p", urls: ["https://jk19ocmjeoyql3tj.ashdi.vip/content/stream/serials/kuroko/hls/480/index.m3u8"]},
+    {quality: "720p", urls: ["https://jk19ocmjeoyql3tj.ashdi.vip/content/stream/serials/kuroko/hls/720/index.m3u8"]}
+  ]);
+});
+
+test("не master — варіантів немає, лишається auto", () => {
+  const media = "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment1.ts\n";
+  assert.deepStrictEqual(uakinoMasterVariants(media, "https://ashdi.vip/a/index.m3u8"), []);
+  assert.deepStrictEqual(uakinoMasterVariants("<html>заглушка</html>", "https://ashdi.vip/a/index.m3u8"), []);
 });

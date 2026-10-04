@@ -197,6 +197,46 @@ async function uakinoFetchPlaylist(box) {
   return data.response;
 }
 
+// Якості з master-плейлиста.
+//
+// ashdi віддає в конфігу плеєра одну адресу index.m3u8, а вже в ній —
+// перелік варіантів (#EXT-X-STREAM-INF з RESOLUTION і адресою, часто на
+// іншому піддомені). Без розбору панель бачила одну «auto» й ховала
+// перемикач якості, а yt-dlp мовчки брав найкращу. Тепер кожен варіант іде
+// окремою якістю, як у HDRezka, і вибирати можна вручну.
+//
+// Підпис якості — висота кадру з RESOLUTION («480p»), інакше NAME, інакше
+// число з адреси (…/hls/480/…). Порядок — від меншої до більшої: панель
+// за замовчуванням бере останню.
+function uakinoMasterVariants(text, base) {
+  const lines = String(text || "").split(/\r?\n/).map(line => line.trim());
+  if (!lines.some(line => line.startsWith("#EXT-X-STREAM-INF"))) return [];
+  const found = new Map();
+  for (let index = 0; index < lines.length; index++) {
+    if (!lines[index].startsWith("#EXT-X-STREAM-INF")) continue;
+    const info = lines[index];
+    let uri = "";
+    for (let next = index + 1; next < lines.length; next++) {
+      if (!lines[next] || lines[next].startsWith("#")) continue;
+      uri = lines[next];
+      break;
+    }
+    if (!uri) continue;
+    let url;
+    try { url = new URL(uakinoAbsolute(uri), base).href; } catch (_) { continue; }
+    const height = Number((info.match(/RESOLUTION=\d+x(\d+)/i) || [])[1] || 0);
+    const name = (info.match(/NAME="?([^",]+)/i) || [])[1] || "";
+    const fromPath = Number((url.match(/\/(\d{3,4})p?\//) || [])[1] || 0);
+    const bandwidth = Number((info.match(/[,:]BANDWIDTH=(\d+)/i) || [])[1] || 0);
+    const size = height || fromPath;
+    const quality = size ? `${size}p` : name || `${Math.round(bandwidth / 1000)}k`;
+    const known = found.get(quality);
+    // Однакова якість двічі (різний бітрейт) — лишаємо кращу.
+    if (!known || bandwidth > known.bandwidth) found.set(quality, {quality, urls: [url], size: size || bandwidth / 1e6, bandwidth});
+  }
+  return [...found.values()].sort((a, b) => a.size - b.size).map(({quality, urls}) => ({quality, urls}));
+}
+
 // Адреси потоку однієї серії. Сторінку плеєра бере фон розширення: з
 // контексту сайту чужий домен закритий CORS.
 async function uakinoStreams(file) {
@@ -204,7 +244,18 @@ async function uakinoStreams(file) {
   if (!answer || answer.error) throw new Error(answer?.error || "фон розширення не відповів");
   const streams = uakinoPlayerStreams(answer.html);
   if (!streams.length) throw new Error("у сторінці плеєра не знайшлося адреси відео");
+  if (streams.length !== 1 || streams[0].urls.length !== 1) return streams;
+
+  // Одна адреса — найімовірніше master-плейлист. Читаємо його так само, як
+  // плеєр: через фон і з Referer сторінки плеєра. Не вийшло — лишається
+  // «auto», і yt-dlp сам візьме найкращу.
+  const master = streams[0].urls[0];
+  try {
+    const playlist = await chrome.runtime.sendMessage({type: "player-page", url: master, referer: new URL(file).origin + "/"});
+    const variants = playlist && !playlist.error ? uakinoMasterVariants(playlist.html, master) : [];
+    if (variants.length) return variants;
+  } catch (_) {}
   return streams;
 }
 
-if (typeof module !== "undefined") module.exports = {uakinoParsePlaylist, uakinoPlayerStreams};
+if (typeof module !== "undefined") module.exports = {uakinoParsePlaylist, uakinoPlayerStreams, uakinoMasterVariants};
