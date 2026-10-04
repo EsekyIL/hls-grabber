@@ -493,8 +493,22 @@ func (d *Downloader) downloadToFinal(ctx context.Context, url, title, finalPath,
 
 	outputTemplate := filepath.Join(tempDir, "temp_%(id)s_%(epoch)s.%(ext)s")
 
-	if err := d.runYTDLP(ctx, url, title, outputTemplate); err != nil {
-		return err
+	if err := d.runYTDLP(ctx, url, title, outputTemplate, 0); err != nil {
+		if ctx.Err() != nil || !isMissingFragmentFile(err) {
+			return err
+		}
+		// Паралельне завантаження спіткнулось на відсутньому фрагменті
+		// (див. isMissingFragmentFile). Послідовно yt-dlp такий фрагмент
+		// просто пропускає, тож повторюємо один раз по одному фрагменту.
+		// Тимчасову теку чистимо: недокачані шматки першої спроби з
+		// --continue могли б склеїтись не з тим.
+		d.writeLog("WARN " + title + " фрагмент відсутній на сервері, повтор без паралельного завантаження")
+		if err := clearDir(tempDir); err != nil {
+			return err
+		}
+		if err := d.runYTDLP(ctx, url, title, outputTemplate, 1); err != nil {
+			return err
+		}
 	}
 
 	downloadedFile, err := findDownloadedFile(tempDir, d.cfg.YTDLP.Container)
@@ -669,8 +683,45 @@ func removeAllWithRetry(path string) error {
 	return lastErr
 }
 
-func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate string) error {
+// isMissingFragmentFile впізнає збій yt-dlp, коли фрагмента немає на сервері.
+//
+// Буває, що плейлист перелічує на шматок більше, ніж лежить на сервері
+// (uakino/ashdi: останній фрагмент серії віддає 404). Плеєр на сайті просто
+// зупиняється, а yt-dlp при паралельному завантаженні після такого збою
+// плутається й падає на іншому, цілком нормальному фрагменті:
+//
+//	[Errno 2] No such file or directory: '…\temp_index_….mp4.part-Frag265'
+//
+// Послідовно (-N 1) він той самий відсутній фрагмент пропускає з
+// попередженням і зберігає серію.
+func isMissingFragmentFile(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := err.Error()
+	return strings.Contains(text, ".part-Frag") && strings.Contains(text, "No such file or directory")
+}
+
+// clearDir видаляє вміст теки, лишаючи саму теку.
+func clearDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := removeAllWithRetry(filepath.Join(dir, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fragmentsOverride > 0 замінює кількість паралельних фрагментів з налаштувань.
+func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate string, fragmentsOverride int) error {
 	fragments := d.cfg.YTDLP.ConcurrentFragments
+	if fragmentsOverride > 0 {
+		fragments = fragmentsOverride
+	}
 	if fragments < 1 {
 		fragments = 1
 	}
@@ -701,6 +752,9 @@ func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate st
 		"--concurrent-fragments", fmt.Sprint(fragments),
 		"--retries", fmt.Sprint(d.cfg.YTDLP.Retries),
 		"--fragment-retries", fmt.Sprint(d.cfg.YTDLP.FragmentRetries),
+		// Явно, хоч це й типова поведінка: відсутній фрагмент пропустити, а
+		// не губити через нього всю серію.
+		"--skip-unavailable-fragments",
 		"--merge-output-format", d.cfg.YTDLP.Container,
 		"-o", outputTemplate,
 		url,

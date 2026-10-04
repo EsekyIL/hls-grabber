@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -71,5 +72,17 @@ func TestErrorReason(t *testing.T) {
 	}
 	if _, ok := errorReason("[download] 5% of 100MiB"); ok {
 		t.Fatal("progress line treated as error")
+	}
+}
+
+func TestIsMissingFragmentFile(t *testing.T) {
+	missing := errors.New(`Unable to download video: [Errno 2] No such file or directory: 'C:\\Users\\x\\AppData\\Local\\Temp\\hls-grabber\\job-1\\temp_index_1.mp4.part-Frag265' (exit status 1)`)
+	if !isMissingFragmentFile(missing) {
+		t.Fatal("expected missing fragment error to be recognised")
+	}
+	for _, err := range []error{nil, errors.New("HTTP Error 403: Forbidden (exit status 1)"), errors.New("No such file or directory: 'C:\\out\\video.mp4'")} {
+		if isMissingFragmentFile(err) {
+			t.Fatalf("unexpected match: %v", err)
+		}
 	}
 }
