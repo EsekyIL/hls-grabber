@@ -442,6 +442,42 @@ async function pollCommands() {
   }
 }
 
+// Сповіщення про кінець сканування.
+//
+// Прохід триває хвилини, а попап зникає, щойно втрачає фокус. Без сповіщення
+// лишалось або сидіти й дивитись на лічильник, або щоразу відкривати попап і
+// перевіряти. Зупинку людиною не сповіщаємо: про неї людина й так знає.
+function scanSummaryText(result) {
+  if (!result) return "Сканування завершено.";
+  if (result.error) return `Помилка: ${result.error}`;
+  const missed = result.missed || [];
+  let text = `Знайдено посилань: ${result.completed || 0}.`;
+  if (missed.length) text += ` Без посилання: ${missed.length}.`;
+  if (result.blind) text += " Працював за таймером, перевір панель.";
+  return text;
+}
+
+function notifyScanFinished(result, tab) {
+  if (result?.cancelled || !chrome.notifications) return;
+  const title = (tab?.title || "").replace(/\s+/g, " ").trim();
+  chrome.notifications.create("scan-finished:" + (tab?.id ?? -1), {
+    type: "basic",
+    title: result?.error ? "Сканування не вдалось" : "Сканування завершено",
+    message: title ? `${title}\n${scanSummaryText(result)}` : scanSummaryText(result)
+  }).catch(() => {});
+}
+
+// Клік по сповіщенню веде на ту вкладку, яку сканували.
+chrome.notifications?.onClicked.addListener(async id => {
+  chrome.notifications.clear(id).catch(() => {});
+  const tabId = Number(id.split(":")[1]);
+  if (!(tabId >= 0)) return;
+  try {
+    const tab = await chrome.tabs.update(tabId, {active: true});
+    await chrome.windows.update(tab.windowId, {focused: true});
+  } catch (_) {}
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "bridge-heartbeat") heartbeat();
   if (message?.type === "scan-context" && sender.tab?.id >= 0) {
@@ -480,6 +516,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     scanState = {...scanState, running: false, result: message.result || null};
     saveScanState();
     chrome.action.setBadgeText({text: ""});
+    notifyScanFinished(message.result, sender.tab);
   }
   if (message?.type === "get-scan-state") {
     // Асинхронна відповідь: стан міг лишитись лише в storage.session, якщо
