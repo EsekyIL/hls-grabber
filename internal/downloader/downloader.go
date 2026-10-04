@@ -837,6 +837,12 @@ func (d *Downloader) readProgressStream(ctx context.Context, reader io.Reader, t
 		}
 
 		fmt.Fprintln(os.Stdout, line)
+		// Повтори фрагментів, «Skipping fragment» і «Total fragments» yt-dlp
+		// пише в stdout, не в stderr. Без цього рядка в журналі лишалась сама
+		// фінальна помилка, і зрозуміти, що їй передувало, було неможливо.
+		if strings.TrimSpace(line) != "" {
+			d.writeLog("YTDLP " + title + " " + line)
+		}
 	}
 }
 
