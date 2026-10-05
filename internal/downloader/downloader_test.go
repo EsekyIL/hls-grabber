@@ -1,10 +1,14 @@
 package downloader
 
 import (
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"hls-grabber/internal/config"
 )
 
 func TestParseProgressLine(t *testing.T) {
@@ -84,5 +88,39 @@ func TestIsMissingFragmentFile(t *testing.T) {
 		if isMissingFragmentFile(err) {
 			t.Fatalf("unexpected match: %v", err)
 		}
+	}
+}
+
+func TestRemuxTransportStreamToMP4(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg не знайдено")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "episode.mp4")
+	// MPEG-TS під розширенням .mp4 — саме те, що лишає --hls-use-mpegts.
+	prepare := exec.Command(ffmpeg, "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=64x36:rate=10",
+		"-f", "lavfi", "-i", "sine=frequency=440", "-t", "2", "-c:v", "libx264", "-c:a", "aac", "-f", "mpegts", path)
+	if out, err := prepare.CombinedOutput(); err != nil {
+		t.Skipf("не вдалося підготувати TS: %v %s", err, out)
+	}
+	if ok, _ := isMPEGTS(path); !ok {
+		t.Fatal("expected prepared file to be MPEG-TS")
+	}
+
+	d := New(&config.Config{})
+	d.cfg.Paths.FFmpegPath = ffmpeg
+	d.cfg.Paths.LogFile = filepath.Join(dir, "test.log")
+	d.remuxTransportStream(context.Background(), "test", path)
+
+	if ok, _ := isMPEGTS(path); ok {
+		t.Fatal("file is still MPEG-TS after remux")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) < 8 || string(data[4:8]) != "ftyp" {
+		t.Fatalf("expected MP4 with ftyp box, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "episode.remux.mp4")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("temporary remux file left behind")
 	}
 }

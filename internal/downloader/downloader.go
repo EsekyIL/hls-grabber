@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -515,6 +516,7 @@ func (d *Downloader) downloadToFinal(ctx context.Context, url, title, finalPath,
 	if err != nil {
 		return err
 	}
+	d.remuxTransportStream(ctx, title, downloadedFile)
 
 	if finalPath == "" {
 		finalPath = filepath.Join(outputDir, filepath.Base(downloadedFile))
@@ -700,6 +702,85 @@ func isMissingFragmentFile(err error) bool {
 	}
 	text := err.Error()
 	return strings.Contains(text, ".part-Frag") && strings.Contains(text, "No such file or directory")
+}
+
+// remuxTransportStream перепаковує MPEG-TS у контейнер, який обіцяє розширення.
+//
+// З --hls-use-mpegts («HLS MPEG-TS» у налаштуваннях) yt-dlp пише HLS одразу
+// в MPEG-TS і свого перепакування не робить, а розширення лишає з
+// --merge-output-format. Виходив «.mp4», усередині якого TS: частина
+// плеєрів і телевізорів такий файл не відкриває або не перемотує.
+//
+// Перепаковка без перекодування (-c copy): якість і тривалість ті самі,
+// займає секунди. Не вдалась — лишаємо файл як є й пишемо в журнал: TS у
+// .mp4 краще, ніж утрачена серія.
+func (d *Downloader) remuxTransportStream(ctx context.Context, title, path string) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != ".mp4" && ext != ".m4v" && ext != ".mov" && ext != ".mkv" {
+		return
+	}
+	if ok, err := isMPEGTS(path); err != nil || !ok {
+		return
+	}
+
+	output := strings.TrimSuffix(path, filepath.Ext(path)) + ".remux" + filepath.Ext(path)
+	args := []string{"-hide_banner", "-loglevel", "error", "-y", "-i", path,
+		// Лише відео й звук: таймовані ID3 і субтитри DVB з TS у MP4 не
+		// влазять, і ffmpeg через них відмовився б від усього файлу.
+		"-map", "0:v?", "-map", "0:a?", "-c", "copy"}
+	if ext != ".mkv" {
+		args = append(args, "-movflags", "+faststart")
+	}
+	args = append(args, output)
+
+	cmd := exec.CommandContext(ctx, ffmpegExecutable(d.cfg.Paths.FFmpegPath), args...)
+	configureCommand(cmd)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		_ = os.Remove(output)
+		d.writeLog("WARN " + title + " не вдалося перепакувати MPEG-TS у " + ext + ": " + strings.TrimSpace(err.Error()+" "+string(out)))
+		return
+	}
+	if err := os.Remove(path); err != nil {
+		_ = os.Remove(output)
+		d.writeLog("WARN " + title + " не вдалося замінити файл після перепакування: " + err.Error())
+		return
+	}
+	if err := os.Rename(output, path); err != nil {
+		d.writeLog("WARN " + title + " не вдалося перейменувати перепакований файл: " + err.Error())
+		return
+	}
+	d.writeLog("INFO " + title + " MPEG-TS перепаковано в " + ext)
+}
+
+// isMPEGTS упізнає транспортний потік за байтом синхронізації 0x47, що
+// повторюється кожні 188 байт.
+func isMPEGTS(path string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	buffer := make([]byte, 188*3+1)
+	if _, err := io.ReadFull(file, buffer); err != nil {
+		return false, nil
+	}
+	return buffer[0] == 0x47 && buffer[188] == 0x47 && buffer[376] == 0x47, nil
+}
+
+// ffmpegExecutable: у налаштуваннях буває і тека, і сам файл.
+func ffmpegExecutable(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "ffmpeg"
+	}
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		name := "ffmpeg"
+		if runtime.GOOS == "windows" {
+			name = "ffmpeg.exe"
+		}
+		return filepath.Join(path, name)
+	}
+	return path
 }
 
 // clearDir видаляє вміст теки, лишаючи саму теку.
