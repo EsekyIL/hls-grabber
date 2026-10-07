@@ -402,6 +402,7 @@ function fillSettings() {
   $$("[data-config]").forEach(input => input.value = readPath(config, input.dataset.config) ?? "");
   savedSettings = settingsSnapshot();
   $("#save-bar").classList.remove("show");
+  countProxies();
 }
 
 async function loadConfig() {
@@ -413,6 +414,29 @@ $$("[data-config]").forEach(input => input.addEventListener("input", () => {
   $("#save-bar").classList.toggle("show", settingsSnapshot() !== savedSettings);
 }));
 $("#reset-settings").addEventListener("click", fillSettings);
+
+// ── Проксі ──────────────────────────────────────────────────────────────
+//
+// Файл читаємо тут, у браузері, і дописуємо до поля: на сервер іде вже
+// разом з іншими налаштуваннями, а розбирає й перевіряє його панель при
+// збереженні (config.ParseProxies). Дублі вона ж і прибере.
+const proxyField = $('[data-config="yt_dlp.proxies"]');
+function countProxies() {
+  const count = proxyField.value.split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith("#")).length;
+  $("#proxy-count").textContent = count ? `У списку: ${count}` : "Порожньо — напряму";
+}
+proxyField.addEventListener("input", countProxies);
+$("#import-proxies").addEventListener("click", () => $("#proxy-file").click());
+$("#proxy-file").addEventListener("change", async event => {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  const text = (await file.text()).trim();
+  if (!text) { toast("Файл порожній", "error"); return; }
+  proxyField.value = [proxyField.value.trim(), text].filter(Boolean).join("\n");
+  proxyField.dispatchEvent(new Event("input"));
+  toast(`Додано з «${file.name}». Натисни «Зберегти», щоб перевірити й застосувати.`);
+});
 $("#save-settings").addEventListener("click", async () => {
   $$("[data-config]").forEach(input => writePath(config, input.dataset.config, input.type === "number" ? Number(input.value) : input.value.trim()));
   try {

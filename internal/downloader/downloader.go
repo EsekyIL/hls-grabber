@@ -31,6 +31,9 @@ type Downloader struct {
 	tempDir      map[string]struct{}
 	progressMu   sync.RWMutex
 	progressSink func(DownloadStats)
+	// goodProxy — проксі, через який востаннє вдалось. З нього починає
+	// наступне завантаження, щоб не перебирати щоразу мертві з голови списку.
+	goodProxy string
 }
 
 func (d *Downloader) SetProgressSink(sink func(DownloadStats)) {
@@ -494,22 +497,8 @@ func (d *Downloader) downloadToFinal(ctx context.Context, url, title, finalPath,
 
 	outputTemplate := filepath.Join(tempDir, "temp_%(id)s_%(epoch)s.%(ext)s")
 
-	if err := d.runYTDLP(ctx, url, title, outputTemplate, 0); err != nil {
-		if ctx.Err() != nil || !isMissingFragmentFile(err) {
-			return err
-		}
-		// Паралельне завантаження спіткнулось на відсутньому фрагменті
-		// (див. isMissingFragmentFile). Послідовно yt-dlp такий фрагмент
-		// просто пропускає, тож повторюємо один раз по одному фрагменту.
-		// Тимчасову теку чистимо: недокачані шматки першої спроби з
-		// --continue могли б склеїтись не з тим.
-		d.writeLog("WARN " + title + " фрагмент відсутній на сервері, повтор без паралельного завантаження")
-		if err := clearDir(tempDir); err != nil {
-			return err
-		}
-		if err := d.runYTDLP(ctx, url, title, outputTemplate, 1); err != nil {
-			return err
-		}
+	if err := d.downloadThroughProxies(ctx, url, title, outputTemplate, tempDir); err != nil {
+		return err
 	}
 
 	downloadedFile, err := findDownloadedFile(tempDir, d.cfg.YTDLP.Container)
@@ -704,6 +693,75 @@ func isMissingFragmentFile(err error) bool {
 	return strings.Contains(text, ".part-Frag") && strings.Contains(text, "No such file or directory")
 }
 
+// downloadThroughProxies качає через проксі зі списку по черзі.
+//
+// Порожній список — пряме з'єднання, як раніше. Інакше пробуємо проксі,
+// починаючи з того, що спрацював минулого разу; не вдалось — тимчасову теку
+// чистимо й беремо наступний. Прямого з'єднання як запасного варіанта немає:
+// проксі ставлять саме тоді, коли напряму не пускає (геоблок), і тихий
+// перехід на свою адресу лише сховав би, що всі проксі мертві.
+func (d *Downloader) downloadThroughProxies(ctx context.Context, url, title, outputTemplate, tempDir string) error {
+	proxies, err := config.ParseProxies(d.cfg.YTDLP.Proxies)
+	if err != nil {
+		return err
+	}
+	if len(proxies) == 0 {
+		return d.downloadAttempt(ctx, url, title, outputTemplate, tempDir, "")
+	}
+
+	var lastErr error
+	for _, proxy := range d.proxyOrder(proxies) {
+		if lastErr != nil {
+			if err := clearDir(tempDir); err != nil {
+				return err
+			}
+		}
+		lastErr = d.downloadAttempt(ctx, url, title, outputTemplate, tempDir, proxy)
+		if lastErr == nil {
+			d.stateMu.Lock()
+			d.goodProxy = proxy
+			d.stateMu.Unlock()
+			return nil
+		}
+		if ctx.Err() != nil {
+			return lastErr
+		}
+		d.writeLog("WARN " + title + " через проксі " + config.RedactProxy(proxy) + " не вдалось: " + lastErr.Error())
+	}
+	return fmt.Errorf("не вдалось через жоден із %d проксі; остання помилка: %w", len(proxies), lastErr)
+}
+
+// proxyOrder ставить першим проксі, що спрацював минулого разу.
+func (d *Downloader) proxyOrder(proxies []string) []string {
+	d.stateMu.Lock()
+	good := d.goodProxy
+	d.stateMu.Unlock()
+	for index, proxy := range proxies {
+		if proxy == good {
+			return append(append([]string{}, proxies[index:]...), proxies[:index]...)
+		}
+	}
+	return proxies
+}
+
+// downloadAttempt — одна спроба через один проксі (або напряму).
+func (d *Downloader) downloadAttempt(ctx context.Context, url, title, outputTemplate, tempDir, proxy string) error {
+	err := d.runYTDLP(ctx, url, title, outputTemplate, 0, proxy)
+	if err == nil || ctx.Err() != nil || !isMissingFragmentFile(err) {
+		return err
+	}
+	// Паралельне завантаження спіткнулось на відсутньому фрагменті
+	// (див. isMissingFragmentFile). Послідовно yt-dlp такий фрагмент
+	// просто пропускає, тож повторюємо один раз по одному фрагменту.
+	// Тимчасову теку чистимо: недокачані шматки першої спроби з
+	// --continue могли б склеїтись не з тим.
+	d.writeLog("WARN " + title + " фрагмент відсутній на сервері, повтор без паралельного завантаження")
+	if err := clearDir(tempDir); err != nil {
+		return err
+	}
+	return d.runYTDLP(ctx, url, title, outputTemplate, 1, proxy)
+}
+
 // remuxTransportStream перепаковує MPEG-TS у контейнер, який обіцяє розширення.
 //
 // З --hls-use-mpegts («HLS MPEG-TS» у налаштуваннях) yt-dlp пише HLS одразу
@@ -798,7 +856,8 @@ func clearDir(dir string) error {
 }
 
 // fragmentsOverride > 0 замінює кількість паралельних фрагментів з налаштувань.
-func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate string, fragmentsOverride int) error {
+// proxy — адреса для --proxy; порожня — напряму.
+func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate string, fragmentsOverride int, proxy string) error {
 	fragments := d.cfg.YTDLP.ConcurrentFragments
 	if fragmentsOverride > 0 {
 		fragments = fragmentsOverride
@@ -825,6 +884,10 @@ func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate st
 
 	if d.cfg.YTDLP.CookiesFromBrowser != "" {
 		args = append(args, "--cookies-from-browser", d.cfg.YTDLP.CookiesFromBrowser)
+	}
+
+	if proxy != "" {
+		args = append(args, "--proxy", proxy)
 	}
 
 	args = append(
@@ -860,7 +923,11 @@ func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate st
 		Message: "Preparing download",
 	})
 
-	d.writeLog("START " + title + " " + url)
+	if proxy != "" {
+		d.writeLog("START " + title + " " + url + " via " + config.RedactProxy(proxy))
+	} else {
+		d.writeLog("START " + title + " " + url)
+	}
 
 	if err := cmd.Start(); err != nil {
 		d.emitProgress(ctx, DownloadStats{

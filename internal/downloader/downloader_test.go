@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"hls-grabber/internal/config"
@@ -122,5 +123,82 @@ func TestRemuxTransportStreamToMP4(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "episode.remux.mp4")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("temporary remux file left behind")
+	}
+}
+
+// fakeYTDLP пише скрипт, що вдає yt-dlp: успіх лише через проксі з «good» у
+// назві, кожен виклик дописує свій --proxy у calls.txt.
+func fakeYTDLP(t *testing.T, dir string) string {
+	t.Helper()
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("немає sh")
+	}
+	script := filepath.Join(dir, "yt-dlp")
+	body := `#!/bin/sh
+proxy=""; out=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --proxy) proxy="$2"; shift ;;
+    -o) out="$2"; shift ;;
+  esac
+  shift
+done
+echo "$proxy" >> "` + filepath.Join(dir, "calls.txt") + `"
+case "$proxy" in
+  *good*) echo data > "$(echo "$out" | sed 's/%(id)s_%(epoch)s.%(ext)s/x_1.mp4/')"; exit 0 ;;
+  *) echo "ERROR: Unable to download webpage: proxy refused" >&2; exit 1 ;;
+esac
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return script
+}
+
+func TestDownloadRotatesProxiesAndRemembersGoodOne(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.YTDLPPath = fakeYTDLP(t, dir)
+	cfg.Paths.LogFile = filepath.Join(dir, "test.log")
+	cfg.YTDLP.Container = "mp4"
+	cfg.YTDLP.ConcurrentFragments = 4
+	cfg.YTDLP.Proxies = "1.1.1.1:1000\nsocks5://good.example:1080\n2.2.2.2:2000"
+	d := New(cfg)
+
+	for _, name := range []string{"one.mp4", "two.mp4"} {
+		final := filepath.Join(dir, "out", name)
+		if err := d.downloadToFinal(context.Background(), "https://example/index.m3u8", name, final, filepath.Dir(final)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, err := os.Stat(final); err != nil {
+			t.Fatalf("%s not saved: %v", name, err)
+		}
+	}
+
+	calls, _ := os.ReadFile(filepath.Join(dir, "calls.txt"))
+	got := strings.Fields(string(calls))
+	want := []string{"http://1.1.1.1:1000", "socks5://good.example:1080", "socks5://good.example:1080"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("proxy order: got %v, want %v", got, want)
+	}
+}
+
+func TestDownloadFailsWhenAllProxiesFail(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.YTDLPPath = fakeYTDLP(t, dir)
+	cfg.Paths.LogFile = filepath.Join(dir, "test.log")
+	cfg.YTDLP.Container = "mp4"
+	cfg.YTDLP.ConcurrentFragments = 1
+	cfg.YTDLP.Proxies = "1.1.1.1:1000\nhttp://user:secret@2.2.2.2:2000"
+	d := New(cfg)
+
+	err := d.downloadToFinal(context.Background(), "https://example/index.m3u8", "x", filepath.Join(dir, "x.mp4"), dir)
+	if err == nil || !strings.Contains(err.Error(), "жоден із 2 проксі") {
+		t.Fatalf("expected all-proxies error, got %v", err)
+	}
+	log, _ := os.ReadFile(cfg.Paths.LogFile)
+	if strings.Contains(string(log), "secret") {
+		t.Fatal("proxy password leaked into the log")
 	}
 }

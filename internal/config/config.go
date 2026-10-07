@@ -35,4 +35,6 @@ type YTDLPConfig struct {
 	Continue            bool   `json:"continue"`
 	HLSUseMPEGTS        bool   `json:"hls_use_mpegts"`
 	SafeMode            bool   `json:"safe_mode"`
+	// Proxies — список проксі для yt-dlp, по одному в рядку (див. ParseProxies).
+	Proxies string `json:"proxies"`
 }

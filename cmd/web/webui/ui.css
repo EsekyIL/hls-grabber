@@ -922,6 +922,11 @@ input[type=number] { -moz-appearance: textfield; }
 .setting b { font-weight: 500; }
 .setting small { color: var(--text-3); font-size: 12.5px; }
 .setting .input--short { width: 120px; justify-self: end; }
+.setting--stack { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.setting--stack textarea { min-height: 120px; }
+.setting small code { padding: 1px 5px; border-radius: 5px; background: var(--surface-2); color: var(--text-2); font: 12px var(--mono); }
+.setting__actions { display: flex; align-items: center; gap: 12px; }
+.setting__actions small { color: var(--text-3); font-size: 12.5px; }
 
 .save-bar {
   position: sticky;

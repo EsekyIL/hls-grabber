@@ -268,6 +268,19 @@
           <p class="footnote"><svg><use href="#i-wrench"/></svg><span>yt-dlp і FFmpeg встановлюються й оновлюються на сторінці «Діагностика».</span></p>
         </section>
 
+        <section class="card settings">
+          <div class="card__head"><h2><svg><use href="#i-globe"/></svg>Проксі</h2></div>
+          <div class="setting setting--stack">
+            <span><b>Список проксі</b><small>Лише для завантаження відео (yt-dlp). По одному в рядку: <code>host:port</code>, <code>host:port:логін:пароль</code> або <code>socks5://логін:пароль@host:port</code>. Якщо проксі не спрацював, панель бере наступний і запам'ятовує робочий. Порожньо — напряму.</small></span>
+            <textarea data-config="yt_dlp.proxies" rows="5" spellcheck="false" placeholder="1.2.3.4:8080&#10;5.6.7.8:1080:user:pass&#10;socks5://user:pass@proxy.example:1080"></textarea>
+            <div class="setting__actions">
+              <button type="button" class="btn btn--ghost btn--small" id="import-proxies"><svg><use href="#i-folder"/></svg>Імпорт з файлу</button>
+              <input type="file" id="proxy-file" accept=".txt,.csv,.list,text/plain" hidden>
+              <small id="proxy-count"></small>
+            </div>
+          </div>
+        </section>
+
         <div class="save-bar" id="save-bar">
           <span>Є незбережені зміни</span>
           <button type="button" class="btn btn--ghost btn--small" id="reset-settings">Скасувати</button>
