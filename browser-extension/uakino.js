@@ -179,15 +179,35 @@ async function uakinoPlaylist() {
   throw new Error(failure || "список серій не завантажився");
 }
 
+// Параметри запиту плейлиста з HTML сторінки: news_id і xfield з блоку
+// .playlists-ajax, dle_root і dle_edittime зі скрипта DLE. Розбір із рядка,
+// бо так само читаються й завантажені сторінки інших сезонів.
+function uakinoPageParams(html) {
+  const text = String(html || "");
+  const box = text.match(/<div\b[^>]*class=["'][^"']*playlists-ajax[^>]*>/i);
+  const attrs = box ? uakinoAttrs(box[0]) : {};
+  return {
+    newsId: attrs["data-news_id"] || "",
+    xfield: attrs["data-xfname"] || "playlist",
+    root: (text.match(/dle_root\s*=\s*['"]([^'"]*)['"]/) || [null, "/"])[1] || "/",
+    edited: (text.match(/dle_edittime\s*=\s*['"]?(\d+)/) || [null, ""])[1] || String(Math.floor(Date.now() / 1000))
+  };
+}
+
 // Той самий запит, що й у скрипта сайту:
 //   GET /engine/ajax/playlists.php?news_id=…&xfield=…&time=dle_edittime
 // time — позначка редагування новини, сайт за нею кешує відповідь.
 async function uakinoFetchPlaylist(box) {
-  const html = document.documentElement.innerHTML;
-  const root = (html.match(/dle_root\s*=\s*['"]([^'"]*)['"]/) || [null, "/"])[1] || "/";
-  const edited = (html.match(/dle_edittime\s*=\s*['"]?(\d+)/) || [null, ""])[1] || String(Math.floor(Date.now() / 1000));
-  const params = new URLSearchParams({news_id: box?.dataset.news_id || "", xfield: box?.dataset.xfname || "playlist", time: edited});
-  const response = await fetch(`${location.origin}${root.endsWith("/") ? root : root + "/"}engine/ajax/playlists.php?${params}`, {
+  const params = uakinoPageParams(document.documentElement.innerHTML);
+  if (box?.dataset.news_id) params.newsId = box.dataset.news_id;
+  if (box?.dataset.xfname) params.xfield = box.dataset.xfname;
+  return uakinoRequestPlaylist(params);
+}
+
+async function uakinoRequestPlaylist({newsId, xfield, root, edited}) {
+  if (!newsId) throw new Error("на сторінці немає блоку плейлиста");
+  const query = new URLSearchParams({news_id: newsId, xfield, time: edited});
+  const response = await fetch(`${location.origin}${root.endsWith("/") ? root : root + "/"}engine/ajax/playlists.php?${query}`, {
     credentials: "include",
     headers: {"X-Requested-With": "XMLHttpRequest"}
   });
@@ -195,6 +215,47 @@ async function uakinoFetchPlaylist(box) {
   const data = await response.json();
   if (!data?.success) throw new Error(data?.message || "сайт не віддав список серій");
   return data.response;
+}
+
+// Перемикач сезонів: <ul class="seasons"><li class="season-active">1 сезон</li>
+// <li><a href="…-2-sezon.html">2 сезон</a></li>…</ul>. Кожен сезон — окрема
+// сторінка зі своїм news_id. Поточний сезон посилання не має.
+function uakinoSeasonLinks(html, base) {
+  const list = String(html || "").match(/<ul\b[^>]*class=["'][^"']*\bseasons\b[^>]*>([\s\S]*?)<\/ul>/i);
+  if (!list) return [];
+  const seasons = [];
+  for (const item of list[1].matchAll(/<li\b([^>]*)>([\s\S]*?)<\/li>/gi)) {
+    const text = uakinoDecode(item[2]);
+    const number = (text.match(/\d+/) || [""])[0];
+    if (!number) continue;
+    const link = item[2].match(/<a\b[^>]*href=["']([^"']+)["']/i);
+    let url = "";
+    if (link) { try { url = new URL(uakinoDecode(link[1]), base).href; } catch (_) { continue; } }
+    seasons.push({season: number, url, active: !link});
+  }
+  return seasons;
+}
+
+// Плейлисти всіх сезонів: поточний — як раніше, решту бере зі сторінок
+// сезонів тим самим запитом. Сезон, що не завантажився, пропускаємо з
+// поміткою, а не валимо весь каталог: решта сезонів від нього не залежить.
+async function uakinoAllSeasons() {
+  const current = {season: uakinoSeason(), url: location.href, playlist: await uakinoPlaylist()};
+  const others = uakinoSeasonLinks(document.documentElement.innerHTML, location.href).filter(item => !item.active && item.url);
+  const seasons = [current];
+  const failed = [];
+  for (const item of others) {
+    try {
+      const response = await fetch(item.url, {credentials: "include"});
+      if (!response.ok) throw new Error(`сайт відповів ${response.status}`);
+      const playlist = uakinoParsePlaylist(await uakinoRequestPlaylist(uakinoPageParams(await response.text())));
+      if (playlist.episodes.length) seasons.push({season: item.season, url: item.url, playlist});
+    } catch (error) {
+      failed.push(`${item.season} сезон: ${error.message}`);
+    }
+  }
+  seasons.sort((a, b) => Number(a.season) - Number(b.season));
+  return {seasons, failed};
 }
 
 // Якості з master-плейлиста.
@@ -258,4 +319,4 @@ async function uakinoStreams(file) {
   return streams;
 }
 
-if (typeof module !== "undefined") module.exports = {uakinoParsePlaylist, uakinoPlayerStreams, uakinoMasterVariants};
+if (typeof module !== "undefined") module.exports = {uakinoParsePlaylist, uakinoPlayerStreams, uakinoMasterVariants, uakinoSeasonLinks, uakinoPageParams};

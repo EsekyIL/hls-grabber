@@ -6,7 +6,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
-const {uakinoParsePlaylist, uakinoPlayerStreams, uakinoMasterVariants} = require("./uakino.js");
+const {uakinoParsePlaylist, uakinoPlayerStreams, uakinoMasterVariants, uakinoSeasonLinks, uakinoPageParams} = require("./uakino.js");
 
 const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, "testdata", "uakino-playlist.json"), "utf8"));
 
@@ -100,4 +100,20 @@ test("не master — варіантів немає, лишається auto", (
   const media = "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment1.ts\n";
   assert.deepStrictEqual(uakinoMasterVariants(media, "https://ashdi.vip/a/index.m3u8"), []);
   assert.deepStrictEqual(uakinoMasterVariants("<html>заглушка</html>", "https://ashdi.vip/a/index.m3u8"), []);
+});
+
+test("справжня сторінка: перемикач сезонів і параметри плейлиста", () => {
+  const html = fs.readFileSync(path.join(__dirname, "testdata", "uakino-page.html"), "utf8");
+  const base = "https://uakino.best/animeukr/anime-series/14642-basketbol-kuroko-1-sezon.html";
+  assert.deepStrictEqual(uakinoSeasonLinks(html, base), [
+    {season: "1", url: "", active: true},
+    {season: "2", url: "https://uakino.best/animeukr/anime-series/14643-basketbol-kuroko-2-sezon.html", active: false},
+    {season: "3", url: "https://uakino.best/animeukr/anime-series/21969-basketbol-kuroko-3-sezon.html", active: false}
+  ]);
+  assert.deepStrictEqual(uakinoPageParams(html), {newsId: "14642", xfield: "playlist", root: "/", edited: "1778202601"});
+});
+
+test("сторінка без перемикача сезонів — список порожній", () => {
+  assert.deepStrictEqual(uakinoSeasonLinks("<div>Фільм</div>", "https://uakino.best/a.html"), []);
+  assert.strictEqual(uakinoPageParams("<div>Фільм</div>").newsId, "");
 });

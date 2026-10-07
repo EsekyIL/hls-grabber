@@ -135,6 +135,7 @@ async function init() {
       return;
     }
     $("#voicesTitle").textContent = `Озвучення (${catalog.translators.length})`;
+    if (catalog.notice) setStatus(catalog.notice, "warn");
     // Назви озвучок приходять зі сторінки сайту, тож будуємо вузли, а не
     // вставляємо їх як HTML.
     $("#voices").replaceChildren(...catalog.translators.map(item => {

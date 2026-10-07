@@ -240,17 +240,42 @@ async function apiScan(translatorIds) {
 
 let uakinoCache = null;
 
+// Усі сезони серіалу: поточна сторінка й ті, на які веде перемикач сезонів.
 async function uakinoLoad() {
-  if (!uakinoCache) uakinoCache = await uakinoPlaylist();
+  if (!uakinoCache) uakinoCache = await uakinoAllSeasons();
   return uakinoCache;
 }
 
+// Ключ озвучки в каталозі. Коли сезон один, лишаємо голий data-id сайту,
+// як було. Коли кілька — додаємо сезон: «0_0» є на кожній сторінці.
+function uakinoVoiceKey(entry, voice, multiple) {
+  return multiple ? `s${entry.season}:${voice.id}` : voice.id;
+}
+
+function uakinoFindVoice(cache, key) {
+  const multiple = cache.seasons.length > 1;
+  for (const entry of cache.seasons) {
+    const voice = entry.playlist.voices.find(item => uakinoVoiceKey(entry, item, multiple) === key);
+    if (voice) return {entry, voice};
+  }
+  return null;
+}
+
 async function uakinoCatalog() {
-  const playlist = await uakinoLoad();
+  const cache = await uakinoLoad();
+  const multiple = cache.seasons.length > 1;
+  const translators = cache.seasons.flatMap(entry => entry.playlist.voices.map(voice => ({
+    id: uakinoVoiceKey(entry, voice, multiple),
+    // Назва вже має сезон, якщо він прийшов із рівнів плейлиста.
+    name: multiple && !voice.season ? `${entry.season} сезон · ${voice.name}` : voice.name,
+    active: false
+  })));
+  if (cache.failed.length) console.warn("HLS Grabber: не всі сезони завантажились:", cache.failed);
   return {
     title: uakinoTitle(),
-    supported: playlist.episodes.length > 0,
-    translators: playlist.voices.map(voice => ({id: voice.id, name: voice.name, active: false}))
+    supported: translators.length > 0,
+    translators,
+    notice: cache.failed.length ? `Не завантажились: ${cache.failed.join("; ")}` : ""
   };
 }
 
@@ -260,16 +285,18 @@ async function uakinoScan(translatorIds) {
   let completed = 0;
   let retries = 0;
   let pace = API_PACE_MIN;
-  const playlist = await uakinoLoad();
+  const cache = await uakinoLoad();
   const title = uakinoTitle();
-  const season = uakinoSeason();
 
-  for (const voiceId of translatorIds) {
+  for (const key of translatorIds) {
     if (scanCancelled) break;
+    const found = uakinoFindVoice(cache, key);
+    if (!found) continue;
+    const {entry, voice} = found;
     // Сезон із назви рівня плейлиста («Сезон 2 · Озвучка»), якщо він там є;
-    // інакше — сезон самої сторінки.
-    const voiceSeason = playlist.voices.find(voice => voice.id === voiceId)?.season || season;
-    for (const item of playlist.episodes.filter(episode => episode.voiceId === voiceId)) {
+    // інакше — сезон сторінки, з якої прийшов плейлист.
+    const voiceSeason = voice.season || entry.season;
+    for (const item of entry.playlist.episodes.filter(episode => episode.voiceId === voice.id)) {
       if (scanCancelled) break;
       let streams = null;
       let reason = "";
@@ -285,9 +312,12 @@ async function uakinoScan(translatorIds) {
       if (streams) {
         completed++;
         pace = Math.max(API_PACE_MIN, pace - PACE_DOWN);
+        // pageUrl і translatorId — сторінки сезону й голий data-id сайту:
+        // за ними панель потім просить свіже посилання, відкриваючи саме
+        // сторінку цього сезону.
         await chrome.runtime.sendMessage({
           type: "cdn-found",
-          payload: {title, pageUrl: location.href, voice: item.voice, translatorId: voiceId, season: voiceSeason, episode: item.episode, streams}
+          payload: {title, pageUrl: entry.url, voice: item.voice, translatorId: voice.id, season: voiceSeason, episode: item.episode, streams}
         });
       } else {
         missed.push({voice: item.voice, season: voiceSeason, episode: item.episode, reason: reason || "порожня відповідь"});
@@ -303,9 +333,10 @@ async function uakinoScan(translatorIds) {
 }
 
 async function uakinoResolve({translatorId, voice, episode}) {
-  // Свіжий список, а не з кешу: протухнути могла й адреса плеєра.
+  // Лише поточна сторінка (панель відкриває сторінку саме того сезону) і
+  // свіжий список, а не з кешу: протухнути могла й адреса плеєра.
   uakinoCache = null;
-  const playlist = await uakinoLoad();
+  const playlist = await uakinoPlaylist();
   const item = playlist.episodes.find(entry =>
     (translatorId ? entry.voiceId === translatorId : entry.voice === voice) && entry.episode === String(episode));
   if (!item) throw new Error(`серії ${episode} озвучки «${voice}» на сторінці немає`);
