@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "HLS Grabber Bridge",
-  "version": "1.12.2",
+  "version": "1.13.0",
   "description": "Передає знайдені M3U8-посилання у локальну панель HLS Grabber.",
   "permissions": [
     "storage",
@@ -43,6 +43,7 @@
     "gecko": {
       "id": "hls-grabber-bridge@local",
       "strict_min_version": "121.0",
+      "update_url": "https://raw.githubusercontent.com/EsekyIL/hls-grabber/main/updates/updates.json",
       "data_collection_permissions": {
         "required": ["none"]
       }

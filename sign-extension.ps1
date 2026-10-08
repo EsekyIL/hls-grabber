@@ -79,7 +79,26 @@ if (-not $xpi) {
   Write-Host "Перевір вивід вище. Якщо Mozilla ще перевіряє, підписаний файл буде на https://addons.mozilla.org/developers/addons" -ForegroundColor Yellow
   exit 1
 }
+# Публікація для автооновлення: .xpi і updates.json у теці updates/.
+# Firefox читає їх із гілки main (update_url у manifest.json) і раз на добу
+# сам ставить новішу версію.
+node (Join-Path $PSScriptRoot "tools\publish-update.js") $xpi.FullName $PSScriptRoot
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "Не вдалося оновити updates/, подробиці вище." -ForegroundColor Red
+  exit $LASTEXITCODE
+}
+git -C $PSScriptRoot add updates
+git -C $PSScriptRoot commit -m "Розширення $version: оновлення для Firefox" --quiet
+if ($LASTEXITCODE -eq 0) {
+  git -C $PSScriptRoot push --quiet
+  if ($LASTEXITCODE -ne 0) { Write-Host "Не вдалося запушити, зроби git push сам." -ForegroundColor Yellow }
+}
+$branch = git -C $PSScriptRoot rev-parse --abbrev-ref HEAD
+if ($branch -ne "main") {
+  Write-Host "Увага: ти на гілці $branch. Firefox бере оновлення з main, тож вони дійдуть після злиття в main." -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "Готово: $($xpi.FullName)" -ForegroundColor Green
-Write-Host "Перетягни цей файл у вікно Firefox і підтвердь встановлення."
-Write-Host "Тимчасову копію в about:debugging перед цим краще вилучити."
+Write-Host "Якщо у Firefox стоїть версія без автооновлення (до 1.13.0), перетягни цей файл у Firefox один раз."
+Write-Host "Далі Firefox оновлюватиметься сам: about:addons → шестірня → «Перевірити наявність оновлень», щоб не чекати добу."
