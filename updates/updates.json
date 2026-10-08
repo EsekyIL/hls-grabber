@@ -1,7 +1,18 @@
 {
   "addons": {
     "hls-grabber-bridge@local": {
-      "updates": []
+      "updates": [
+        {
+          "version": "1.13.0",
+          "update_link": "https://raw.githubusercontent.com/EsekyIL/hls-grabber/main/updates/hls-grabber-bridge-1.13.0.xpi",
+          "update_hash": "sha256:58eaa9ff362cd3bbe5e1b052e3767dc32204638f537cc11f2822ebe9ad13a1a3",
+          "applications": {
+            "gecko": {
+              "strict_min_version": "121.0"
+            }
+          }
+        }
+      ]
     }
   }
 }
