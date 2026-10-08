@@ -88,7 +88,7 @@ if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }
 git -C $PSScriptRoot add updates
-git -C $PSScriptRoot commit -m "Розширення $version: оновлення для Firefox" --quiet
+git -C $PSScriptRoot commit -m "Розширення ${version}: оновлення для Firefox" --quiet
 if ($LASTEXITCODE -eq 0) {
   git -C $PSScriptRoot push --quiet
   if ($LASTEXITCODE -ne 0) { Write-Host "Не вдалося запушити, зроби git push сам." -ForegroundColor Yellow }
