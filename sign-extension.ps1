@@ -26,8 +26,12 @@ function Read-Secret([string]$prompt) {
     [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
 }
 
-if (-not $env:WEB_EXT_API_KEY) { $env:WEB_EXT_API_KEY = Read-Host "JWT issuer" }
-if (-not $env:WEB_EXT_API_SECRET) { $env:WEB_EXT_API_SECRET = Read-Secret "JWT secret" }
+# Введені тут ключі живуть лише до кінця скрипта (див. finally нижче).
+# Раніше вони лишались у змінних вікна PowerShell, і наступний запуск мовчки
+# брав їх звідти, навіть якщо їх уже анулювали на AMO, і падав з 401.
+$asked = $false
+if (-not $env:WEB_EXT_API_KEY) { $env:WEB_EXT_API_KEY = Read-Host "JWT issuer"; $asked = $true }
+if (-not $env:WEB_EXT_API_SECRET) { $env:WEB_EXT_API_SECRET = Read-Secret "JWT secret"; $asked = $true }
 
 # Порожній Enter не має доходити до AMO: інакше скрипт мовчки завершувався,
 # і незрозуміло було, підписалось щось чи ні.
@@ -45,15 +49,25 @@ $output = Join-Path $PSScriptRoot "build\xpi"
 # Ключі web-ext бере зі змінних WEB_EXT_*, тож у командному рядку (і в
 # списку процесів) їх немає. Пакуються лише файли розширення: без Go,
 # тестів і тестових даних — той самий набір, що вшитий у панель.
-npx --yes web-ext@8 sign `
-  --source-dir $source `
-  --artifacts-dir $output `
-  --channel unlisted `
-  --ignore-files "*.go" "*.test.js" "testdata" "testdata/**" "README.md"
+try {
+  npx --yes web-ext@8 sign `
+    --source-dir $source `
+    --artifacts-dir $output `
+    --channel unlisted `
+    --ignore-files "*.go" "*.test.js" "testdata" "testdata/**" "README.md" 2>&1 | Tee-Object -Variable signOutput
+  $code = $LASTEXITCODE
+} finally {
+  if ($asked) { Remove-Item Env:WEB_EXT_API_KEY, Env:WEB_EXT_API_SECRET -ErrorAction SilentlyContinue }
+}
 
-if ($LASTEXITCODE -ne 0) {
+if ($code -ne 0) {
   Write-Host "Підпис не вдався, подробиці вище." -ForegroundColor Red
-  exit $LASTEXITCODE
+  if (($signOutput | Out-String) -match "401|JWT") {
+    Write-Host "Mozilla не прийняла ключі. Створи нові на https://addons.mozilla.org/developers/addon/api/key/" -ForegroundColor Yellow
+    Write-Host "і запусти скрипт ще раз. Якщо ключі задані в змінних середовища, спершу:" -ForegroundColor Yellow
+    Write-Host "  Remove-Item Env:WEB_EXT_API_KEY, Env:WEB_EXT_API_SECRET" -ForegroundColor Yellow
+  }
+  exit $code
 }
 
 $xpi = Get-ChildItem $output -Filter *.xpi | Sort-Object LastWriteTime -Descending | Select-Object -First 1
