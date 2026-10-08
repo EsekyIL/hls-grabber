@@ -9,3 +9,6 @@ errors.log
 # Локальні налаштування панелі лежать у %APPDATA%, не тут, але про всяк:
 config.yaml
 config.json
+
+# Підписане розширення
+build/xpi/

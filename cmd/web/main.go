@@ -6,8 +6,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -64,8 +66,11 @@ type server struct {
 	// у bridgecmd.go.
 	bridgeQueue   []*bridgeCommand
 	bridgeSession bridgeSession
-	updateMu      sync.Mutex
-	updateRunning bool
+	// Запити свіжих посилань для черги. Докладно — у resolve.go.
+	resolveQueue   []*resolveCommand
+	resolveWaiters map[string]chan resolveResult
+	updateMu       sync.Mutex
+	updateRunning  bool
 }
 
 // Помилки моста. Окремими змінними, бо їх віддають одразу два обробники, і
@@ -81,8 +86,11 @@ type inboxItem struct {
 	Title   string `json:"title"`
 	PageURL string `json:"pageUrl"`
 	Voice   string `json:"voice"`
-	Season  string `json:"season"`
-	Episode string `json:"episode"`
+	// TranslatorID — номер озвучки на сайті. Потрібен, щоб черга могла
+	// попросити свіжу адресу, коли стара протухне.
+	TranslatorID string `json:"translatorId,omitempty"`
+	Season       string `json:"season"`
+	Episode      string `json:"episode"`
 	// Streams — усі якості епізоду з готовими адресами.
 	//
 	// З'явилось разом з обходом через API сайту: він віддає весь набір
@@ -100,14 +108,15 @@ type streamOption struct {
 }
 
 type inboxRequest struct {
-	URL     string         `json:"url"`
-	URLs    []string       `json:"urls"`
-	Streams []streamOption `json:"streams"`
-	Title   string         `json:"title"`
-	PageURL string         `json:"pageUrl"`
-	Voice   string         `json:"voice"`
-	Season  string         `json:"season"`
-	Episode string         `json:"episode"`
+	URL          string         `json:"url"`
+	URLs         []string       `json:"urls"`
+	Streams      []streamOption `json:"streams"`
+	Title        string         `json:"title"`
+	PageURL      string         `json:"pageUrl"`
+	Voice        string         `json:"voice"`
+	TranslatorID string         `json:"translatorId"`
+	Season       string         `json:"season"`
+	Episode      string         `json:"episode"`
 }
 
 type downloadRequest struct {
@@ -115,6 +124,7 @@ type downloadRequest struct {
 	Source       string         `json:"source"`
 	URL          string         `json:"url"`
 	URLs         []string       `json:"urls"`
+	Mirrors      []string       `json:"mirrors"`
 	Items        []downloadItem `json:"items"`
 	Title        string         `json:"title"`
 	Season       string         `json:"season"`
@@ -123,16 +133,28 @@ type downloadRequest struct {
 }
 
 type downloadItem struct {
-	URL     string `json:"url"`
-	Voice   string `json:"voice"`
-	Season  string `json:"season"`
-	Episode int    `json:"episode"`
+	URL     string   `json:"url"`
+	Mirrors []string `json:"mirrors"`
+	Voice   string   `json:"voice"`
+	Season  string   `json:"season"`
+	Episode int      `json:"episode"`
+	// Звідки серія і якої якості — щоб черга могла взяти свіжу адресу, коли
+	// ця протухне.
+	PageURL      string `json:"pageUrl"`
+	TranslatorID string `json:"translatorId"`
+	Quality      string `json:"quality"`
 }
 
 func main() {
 	openBrowser := flag.Bool("open", false, "open the web interface")
 	port := flag.Int("port", 8787, "local server port")
 	flag.Parse()
+
+	// Збірка без консолі (-H=windowsgui) нікуди не показує ні log.Printf, ні
+	// log.Fatal. Тому повідомлення самої панелі йдуть і в download.log: файл
+	// першим, бо MultiWriter зупиняється на першому ж writer'і з помилкою, а
+	// stderr без консолі саме такий.
+	log.SetOutput(io.MultiWriter(panelLog{}, os.Stderr))
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -146,12 +168,16 @@ func main() {
 		log.Fatal(err)
 	}
 	dl.SetProgressSink(queue.progress)
-	queue.start()
 	app := &server{cfg: cfg, dl: dl, hub: h, queue: queue}
+	queue.refresh = app.refreshURLs
+	queue.start()
 
 	mux := http.NewServeMux()
 	app.routes(mux)
 
+	// Go не знає woff2 сам, а на Windows таблиця типів береться з реєстру й
+	// буває порожньою. Без явного типу шрифт приходить як octet-stream.
+	_ = mime.AddExtensionType(".woff2", "font/woff2")
 	assets, err := fs.Sub(webAssets, "webui")
 	if err != nil {
 		log.Fatal(err)
@@ -159,11 +185,17 @@ func main() {
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 
 	address := fmt.Sprintf("127.0.0.1:%d", *port)
+	url := "http://" + address
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
+		// Без консолі повторний запуск мовчки помирав би на зайнятому порту.
+		// Якщо там уже наша панель, просто відкриваємо її.
+		if panelRunning(url) {
+			_ = openURL(url)
+			return
+		}
 		log.Fatal(err)
 	}
-	url := "http://" + address
 	log.Printf("HLS Grabber is ready at %s", url)
 	if *openBrowser {
 		go func() {
@@ -178,12 +210,13 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/config", s.getConfig)
 	mux.HandleFunc("PUT /api/config", s.saveConfig)
 	mux.HandleFunc("GET /api/status", s.getStatus)
+	mux.HandleFunc("POST /api/shutdown", s.shutdown)
 	mux.HandleFunc("GET /api/events", s.events)
 	mux.HandleFunc("POST /api/download", s.startDownload)
 	mux.HandleFunc("POST /api/pause", func(w http.ResponseWriter, _ *http.Request) { writeResult(w, s.dl.Pause()) })
 	mux.HandleFunc("POST /api/resume", func(w http.ResponseWriter, _ *http.Request) { writeResult(w, s.dl.Resume()) })
 	mux.HandleFunc("POST /api/cancel", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]bool{"cancelled": s.dl.CancelActive()})
+		writeJSON(w, http.StatusOK, map[string]bool{"cancelled": s.queue.cancelRunning()})
 	})
 	mux.HandleFunc("GET /api/inbox", s.getInbox)
 	mux.HandleFunc("POST /api/inbox", s.addInbox)
@@ -203,6 +236,8 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/bridge/commands", s.takeBridgeCommands)
 	mux.HandleFunc("POST /api/bridge/result", s.reportBridgeResult)
 	mux.HandleFunc("GET /api/bridge/session", s.getBridgeSession)
+	mux.HandleFunc("GET /api/bridge/resolves", s.takeResolveCommands)
+	mux.HandleFunc("POST /api/bridge/resolved", s.reportResolved)
 	mux.HandleFunc("POST /api/extension/prepare", s.prepareExtension)
 	mux.HandleFunc("POST /api/extension/setup", s.openExtensionSetup)
 }
@@ -377,7 +412,8 @@ func (s *server) addStreamItem(w http.ResponseWriter, request inboxRequest) {
 	s.inbox = append(s.inbox, inboxItem{
 		URL: best, Streams: request.Streams,
 		Title: strings.TrimSpace(request.Title), PageURL: strings.TrimSpace(request.PageURL),
-		Voice: strings.TrimSpace(request.Voice), Season: strings.TrimSpace(request.Season),
+		Voice: strings.TrimSpace(request.Voice), TranslatorID: strings.TrimSpace(request.TranslatorID),
+		Season:  strings.TrimSpace(request.Season),
 		Episode: strings.TrimSpace(request.Episode), CapturedAt: time.Now(),
 	})
 	s.lastBridgeSeen = time.Now()
@@ -551,4 +587,44 @@ func openURL(url string) error {
 	default:
 		return exec.Command("xdg-open", url).Start()
 	}
+}
+
+// panelLog дописує повідомлення log у download.log.
+type panelLog struct{}
+
+func (panelLog) Write(p []byte) (int, error) {
+	if err := config.AppendLog(config.DefaultLogFile(), "INFO", "PANEL "+strings.TrimSpace(string(p))); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+// panelRunning перевіряє, що на адресі відповідає саме HLS Grabber.
+func panelRunning(url string) bool {
+	client := http.Client{Timeout: 2 * time.Second}
+	response, err := client.Get(url + "/api/status")
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+	return response.StatusCode == http.StatusOK
+}
+
+// shutdown вимикає панель із самої панелі: без консолі закрити її більше
+// нічим.
+//
+// Процес yt-dlp вбиваємо, інакше він лишився б сиротою й докачував би
+// нікуди. Чергу тримаємо заблокованою до самого виходу, щоб воркер не
+// встиг записати вбите завантаження як помилку: у файлі задача лишається
+// «running», а при наступному запуску черга поверне її в «pending».
+func (s *server) shutdown(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		s.queue.mu.Lock()
+		s.dl.CancelActive()
+		s.dl.CleanupActiveTemp()
+		log.Printf("Панель вимкнено з інтерфейсу")
+		os.Exit(0)
+	}()
 }

@@ -41,7 +41,7 @@ function loadBackground() {
       create: async () => ({id: 1}), remove: noop,
     },
     storage: {
-      local: {get: async () => ({enabled: true, port: 8788})},
+      local: {get: async () => ({port: 8787}), set: noop, remove: noop},
       session: {get: async () => ({}), set: noop, remove: noop},
     },
     action: {setBadgeBackgroundColor: noop, setBadgeText: noop},
@@ -55,6 +55,10 @@ function loadBackground() {
   const file = path.join(__dirname, "service-worker.js");
   // eslint-disable-next-line no-eval
   eval(fs.readFileSync(file, "utf8"));
+  // Функції фонового скрипта живуть в області цієї функції — віддаємо ті,
+  // які тести викликають напряму.
+  // eslint-disable-next-line no-undef
+  calls.api = {pollResolves};
   return calls;
 }
 
@@ -88,4 +92,40 @@ test("реєстрація не залежить від виклику інши�
   // заради якої цей файл і написаний.
   const onLoad = calls.filter((c) => c.startsWith("alarms.") || c.startsWith("runtime.") || c.startsWith("webRequest."));
   assert.strictEqual(onLoad.length, 4, `на старті зареєстровано: ${onLoad.join(", ")}`);
+});
+
+test("свіжі посилання беруться в одній вкладці на сторінку", async () => {
+  const {api} = loadBackground();
+  // Скрипт сам опитує панель на старті. Даємо тим викликам дійти до кінця,
+  // інакше вони заберуть підставлені нижче команди замість тесту.
+  await new Promise(resolve => setImmediate(resolve));
+  const page = "https://site.test/show.html";
+  const created = [], removed = [], posted = [];
+  let served = false;
+  global.fetch = async (url, init) => {
+    if (url.endsWith("/api/bridge/resolves") && !served) {
+      served = true;
+      return {ok: true, json: async () => [
+        {id: "r1", url: page, translatorId: "56", season: "1", episode: "1"},
+        {id: "r2", url: page, translatorId: "56", season: "1", episode: "2"},
+      ]};
+    }
+    if (url.endsWith("/api/bridge/resolved")) posted.push(JSON.parse(init.body));
+    return {ok: true, json: async () => []};
+  };
+  chrome.permissions = {contains: async () => true};
+  chrome.tabs.query = async () => [];
+  chrome.tabs.create = async ({url}) => { created.push(url); return {id: 7}; };
+  chrome.tabs.remove = async id => { removed.push(id); };
+  chrome.tabs.sendMessage = async (_tab, message) => {
+    if (message.type === "get-catalog") return {supported: true};
+    if (message.type === "resolve-episode") return {streams: [{quality: "720p", urls: [`fresh-${message.episode}`]}]};
+    return {};
+  };
+
+  await api.pollResolves();
+
+  assert.deepStrictEqual(created, [page], "на дві серії однієї сторінки — одна вкладка");
+  assert.deepStrictEqual(removed, [7], "свою вкладку треба закрити");
+  assert.deepStrictEqual(posted.map(p => [p.id, p.streams[0]?.urls[0]]), [["r1", "fresh-1"], ["r2", "fresh-2"]]);
 });

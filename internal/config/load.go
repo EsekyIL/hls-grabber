@@ -18,7 +18,6 @@ func Default() Config {
 			LogFile: DefaultLogFile(),
 		},
 		Download: DownloadConfig{
-			MaxParallel:   4,
 			Retries:       3,
 			RetryDelaySec: 5,
 		},
@@ -51,6 +50,12 @@ func (c *Config) Normalize() {
 	c.Paths.LinksDir = strings.TrimSpace(c.Paths.LinksDir)
 	c.YTDLP.Container = strings.TrimSpace(c.YTDLP.Container)
 	c.YTDLP.CookiesFromBrowser = strings.ToLower(strings.TrimSpace(c.YTDLP.CookiesFromBrowser))
+	// Список зберігаємо вже в єдиному вигляді: так у налаштуваннях видно,
+	// як панель зрозуміла кожен рядок. Нерозбірний лишаємо як є — його
+	// покаже Validate.
+	if proxies, err := ParseProxies(c.YTDLP.Proxies); err == nil {
+		c.YTDLP.Proxies = strings.Join(proxies, "\n")
+	}
 }
 
 func DefaultLogFile() string {
@@ -167,9 +172,6 @@ func (c Config) Validate() error {
 	if !SupportedLanguage(c.General.Language) {
 		return errors.New("unsupported language")
 	}
-	if c.Download.MaxParallel <= 0 {
-		return errors.New("max_parallel must be > 0")
-	}
 	if c.Download.Retries < 0 {
 		return errors.New("retries must be >= 0")
 	}
@@ -190,6 +192,9 @@ func (c Config) Validate() error {
 	}
 	if !isValidCookiesBrowser(c.YTDLP.CookiesFromBrowser) {
 		return errors.New("unsupported cookies browser")
+	}
+	if _, err := ParseProxies(c.YTDLP.Proxies); err != nil {
+		return err
 	}
 
 	return nil

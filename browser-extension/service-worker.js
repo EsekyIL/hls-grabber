@@ -9,19 +9,61 @@ const scanContexts = new Map();
 // розширення й такі адреси не бачила зовсім.
 const PLAYLIST_RE = /\.m3u8(?:[?#]|$)|[?&](?:type|format|ext)=m3u8|\/master(?:[?#]|$)/i;
 
+// passive — «Ловити все на сторінках» у попапі. Вимкнено за замовчуванням:
+// плейлисти з трафіку йдуть у панель лише під час сканування, запущеного
+// кнопкою. Раніше перехоплення працювало завжди, і в панель потрапляло все,
+// що грало в будь-якій вкладці.
 async function settings() {
-  return chrome.storage.local.get({enabled: true, port: 8788});
+  return chrome.storage.local.get({passive: false, port: 8787});
 }
+
+// Старий прапорець «enabled» більше нічого не значить: прибираємо, щоб не
+// плутав.
+chrome.storage.local.remove("enabled").catch(() => {});
+
+// Порти, де панель шукаємо, якщо вона не відповідає на збереженому.
+//
+// Досі порт був лише ручний: запустив панель з -port 8899 і забув вписати те
+// саме число в попап — і Діагностика чесно казала «Не бачу», хоча обидві
+// сторони працювали. Тепер розширення обходить звичні порти й запам'ятовує
+// той, де відповіла саме панель (heartbeat з {"ok": true}, а не будь-яка
+// програма на цьому порту).
+const PANEL_PORTS = [8787, 8899, 8788, 8789, 8790, 8080, 8888, 9000];
+
+async function pingPanel(port) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/bridge/heartbeat`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({version: chrome.runtime.getManifest().version, browser: "Firefox"}),
+      signal: AbortSignal.timeout(2000)
+    });
+    if (!response.ok) return false;
+    const data = await response.json().catch(() => null);
+    return data?.ok === true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Один пошук за раз: heartbeat приходить і від будильника, і від кожної
+// вкладки, і без цього вимкнена панель давала б десятки паралельних обходів.
+let discovering = null;
 
 async function heartbeat() {
   const {port} = await settings();
-  try {
-    await fetch(`http://127.0.0.1:${port}/api/bridge/heartbeat`, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({version: chrome.runtime.getManifest().version, browser: "Firefox"})
-    });
-  } catch (_) {}
+  if (await pingPanel(port)) return;
+  if (discovering) return discovering;
+  discovering = (async () => {
+    for (const candidate of PANEL_PORTS) {
+      if (candidate === port) continue;
+      if (await pingPanel(candidate)) {
+        await chrome.storage.local.set({port: candidate});
+        return;
+      }
+    }
+  })().finally(() => { discovering = null; });
+  return discovering;
 }
 
 async function sendURL(url, tabId, context) {
@@ -34,8 +76,7 @@ async function sendURL(url, tabId, context) {
     chrome.tabs.sendMessage(tabId, {type: "link-captured", seq: context.seq, url}).catch(() => {});
   }
 
-  const {enabled, port} = await settings();
-  if (!enabled) return;
+  const {passive, port} = await settings();
 
   // Контекст сюди приходить готовим, знятим синхронно в момент СТАРТУ
   // запиту. Спершу він читався тут, перед самим fetch, тобто вже після
@@ -52,6 +93,10 @@ async function sendURL(url, tabId, context) {
       context = saved["ctx:" + tabId] || context;
     } catch (_) {}
   }
+
+  // Без сканування на цій вкладці — лише якщо людина сама ввімкнула «Ловити
+  // все на сторінках».
+  if (!context.seq && !passive) return;
 
   const now = Date.now();
   if (now - (sent.get(url) || 0) < 30_000) return;
@@ -85,8 +130,7 @@ async function sendURL(url, tabId, context) {
 // якостей одразу. Дедуплікація за 30 секунд тут теж ні до чого — обхід і так
 // питає кожен епізод рівно раз.
 async function sendStreams(payload) {
-  const {enabled, port} = await settings();
-  if (!enabled) return;
+  const {port} = await settings();
   try {
     await fetch(`http://127.0.0.1:${port}/api/inbox`, {
       method: "POST",
@@ -197,7 +241,7 @@ async function waitForContentScript(tabId, timeoutMs = 40000) {
       try {
         await chrome.scripting.executeScript({
           target: {tabId},
-          files: ["cdn-api.js", "content-script.js"],
+          files: ["cdn-api.js", "uakino.js", "content-script.js"],
         });
         injectError = "";
       } catch (error) {
@@ -261,7 +305,7 @@ async function runCommand(command, port) {
   }
   try {
     const catalog = await waitForContentScript(tab.id);
-    if (!catalog.supported) throw new Error("на цій сторінці адаптер не знайшов серіал");
+    if (!catalog.supported) throw new Error(catalog.error || "на цій сторінці адаптер не знайшов серіал");
 
     if (command.kind === "probe") {
       await report(port, {
@@ -290,10 +334,137 @@ async function runCommand(command, port) {
   }
 }
 
+// ── Сторінки зовнішніх плеєрів ──────────────────────────────────────────
+//
+// uakino показує відео через ashdi: адреса .m3u8 лежить у сторінці плеєра на
+// чужому домені. Зі сторінки сайту її не прочитати — CORS, — а фон
+// розширення з доступом до сайтів може.
+//
+// Плеєр перевіряє, звідки його вбудували, і без Referer сайту віддає
+// заглушку. fetch не дозволяє підставити чужий Referer, тож додаємо його
+// перехопленням запиту — лише нашим, фоновим (tabId -1), і лише для адрес,
+// які зараз запитуємо.
+const playerReferers = new Map();
+
+try {
+  chrome.webRequest.onBeforeSendHeaders.addListener(
+    details => {
+      const referer = playerReferers.get(details.url);
+      if (details.tabId !== -1 || !referer) return {};
+      const headers = details.requestHeaders.filter(header => header.name.toLowerCase() !== "referer");
+      headers.push({name: "Referer", value: referer});
+      return {requestHeaders: headers};
+    },
+    {urls: ["<all_urls>"]},
+    ["blocking", "requestHeaders"]
+  );
+} catch (_) {
+  // Без webRequestBlocking (Chromium MV3) запит піде без Referer. Плеєр, що
+  // його не вимагає, однаково відповість; той, що вимагає, дасть зрозумілу
+  // помилку «не знайшлося адреси відео».
+}
+
+async function fetchPlayerPage(url, referer) {
+  try {
+    if (!/^https?:\/\//.test(url)) throw new Error("незрозуміла адреса плеєра");
+    playerReferers.set(url, referer || "");
+    const response = await fetch(url, {credentials: "omit", cache: "no-store"});
+    if (!response.ok) throw new Error(`плеєр відповів ${response.status}`);
+    return {html: await response.text()};
+  } catch (error) {
+    return {error: error?.message || String(error)};
+  } finally {
+    playerReferers.delete(url);
+  }
+}
+
+// ── Свіжі посилання для черги ───────────────────────────────────────────
+//
+// Підписані адреси сайту протухають, поки серія чекає в черзі. Панель тоді
+// просить свіжу, і взяти її можна лише зі сторінки серіалу — з її куками.
+//
+// Окремий канал і окремий прапорець зайнятості: обхід серіалу триває
+// хвилинами, і якби оновлення стояли за ним у тій самій черзі, панель
+// давно перестала б чекати.
+
+let resolveBusy = false;
+
+async function reportResolved(port, payload) {
+  try {
+    await fetch(`http://127.0.0.1:${port}/api/bridge/resolved`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    });
+  } catch (_) {}
+}
+
+// Обробляє запити однієї сторінки в одній вкладці: коли протухла вся
+// черга, відкривати сайт заново на кожну серію було б і довго, і грубо.
+async function resolveForPage(url, commands, port) {
+  const fail = async error => {
+    for (const command of commands) await reportResolved(port, {id: command.id, error});
+  };
+  if (!(await hasSiteAccess())) {
+    await fail("розширенню не надано доступ до сайтів");
+    return;
+  }
+
+  let tab = null;
+  let borrowed = false;
+  try {
+    const [found] = await chrome.tabs.query({url: url.split("#")[0]});
+    if (found) { tab = found; borrowed = true; }
+  } catch (_) {}
+  try {
+    if (!tab) tab = await chrome.tabs.create({url, active: false});
+    await waitForContentScript(tab.id);
+    for (const command of commands) {
+      let answer;
+      try {
+        answer = await chrome.tabs.sendMessage(tab.id, {type: "resolve-episode", ...command});
+      } catch (error) {
+        answer = {error: error?.message || String(error)};
+      }
+      await reportResolved(port, {id: command.id, streams: answer?.streams || [], error: answer?.error || ""});
+    }
+  } catch (error) {
+    await fail(error?.message || String(error));
+  } finally {
+    if (tab && !borrowed) {
+      try { await chrome.tabs.remove(tab.id); } catch (_) {}
+    }
+  }
+}
+
+async function pollResolves() {
+  if (resolveBusy) return;
+  const {port} = await settings();
+
+  let commands = [];
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/bridge/resolves`);
+    if (!response.ok) return;
+    commands = await response.json();
+  } catch (_) { return; }
+  if (!commands.length) return;
+
+  resolveBusy = true;
+  try {
+    const byPage = new Map();
+    for (const command of commands) {
+      if (!byPage.has(command.url)) byPage.set(command.url, []);
+      byPage.get(command.url).push(command);
+    }
+    for (const [url, group] of byPage) await resolveForPage(url, group, port);
+  } finally {
+    resolveBusy = false;
+  }
+}
+
 async function pollCommands() {
   if (commandBusy) return;
-  const {enabled, port} = await settings();
-  if (!enabled) return;
+  const {port} = await settings();
 
   let commands = [];
   try {
@@ -313,6 +484,42 @@ async function pollCommands() {
   }
 }
 
+// Сповіщення про кінець сканування.
+//
+// Прохід триває хвилини, а попап зникає, щойно втрачає фокус. Без сповіщення
+// лишалось або сидіти й дивитись на лічильник, або щоразу відкривати попап і
+// перевіряти. Зупинку людиною не сповіщаємо: про неї людина й так знає.
+function scanSummaryText(result) {
+  if (!result) return "Сканування завершено.";
+  if (result.error) return `Помилка: ${result.error}`;
+  const missed = result.missed || [];
+  let text = `Знайдено посилань: ${result.completed || 0}.`;
+  if (missed.length) text += ` Без посилання: ${missed.length}.`;
+  if (result.blind) text += " Працював за таймером, перевір панель.";
+  return text;
+}
+
+function notifyScanFinished(result, tab) {
+  if (result?.cancelled || !chrome.notifications) return;
+  const title = (tab?.title || "").replace(/\s+/g, " ").trim();
+  chrome.notifications.create("scan-finished:" + (tab?.id ?? -1), {
+    type: "basic",
+    title: result?.error ? "Сканування не вдалось" : "Сканування завершено",
+    message: title ? `${title}\n${scanSummaryText(result)}` : scanSummaryText(result)
+  }).catch(() => {});
+}
+
+// Клік по сповіщенню веде на ту вкладку, яку сканували.
+chrome.notifications?.onClicked.addListener(async id => {
+  chrome.notifications.clear(id).catch(() => {});
+  const tabId = Number(id.split(":")[1]);
+  if (!(tabId >= 0)) return;
+  try {
+    const tab = await chrome.tabs.update(tabId, {active: true});
+    await chrome.windows.update(tab.windowId, {focused: true});
+  } catch (_) {}
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "bridge-heartbeat") heartbeat();
   if (message?.type === "scan-context" && sender.tab?.id >= 0) {
@@ -330,6 +537,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   }
   if (message?.type === "cdn-found") sendStreams(message.payload);
+  if (message?.type === "player-page") {
+    fetchPlayerPage(message.url, message.referer).then(sendResponse);
+    return true;
+  }
   if (message?.type === "scan-progress") {
     scanState = {
       ...scanState,
@@ -347,6 +558,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     scanState = {...scanState, running: false, result: message.result || null};
     saveScanState();
     chrome.action.setBadgeText({text: ""});
+    notifyScanFinished(message.result, sender.tab);
   }
   if (message?.type === "get-scan-state") {
     // Асинхронна відповідь: стан міг лишитись лише в storage.session, якщо
@@ -370,6 +582,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.webRequest.onBeforeRequest.addListener(
   details => {
     if (!PLAYLIST_RE.test(details.url)) return;
+    // Власні запити розширення не ловимо. Фон сам читає master-плейлист
+    // ashdi, щоб дізнатись якості, і без цієї перевірки кожна така адреса
+    // ще раз приходила в панель — без озвучки й сезону, дублем серії.
+    if (playerReferers.has(details.url) || /^moz-extension:/.test(details.originUrl || "")) return;
     // Контекст знімаємо ТУТ, синхронно: це справжній момент старту запиту,
     // і жодного проміжку, за який сканер устиг би переїхати, тут немає.
     const context = details.tabId >= 0 ? (scanContexts.get(details.tabId) || {}) : {};
@@ -403,7 +619,9 @@ chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name !== "bridge-poll") return;
   heartbeat();
   pollCommands();
+  pollResolves();
 });
 
 heartbeat();
 pollCommands();
+pollResolves();

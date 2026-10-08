@@ -3,173 +3,371 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#08090b">
+  <meta name="theme-color" content="#09090b">
   <title>HLS Grabber</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/ui.css">
 </head>
 <body>
-  <div class="ambient ambient--one"></div>
-  <div class="ambient ambient--two"></div>
-  <div class="shell">
+  <!-- Іконки одним спрайтом: малюються штрихом у колір тексту, тож
+       підлаштовуються під будь-яку кнопку без окремих файлів. -->
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-library" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7l10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5Z"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+    <symbol id="i-retry" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 5l7 7-7 7"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2.18"/><path d="M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 17h5M17 7h5"/></symbol>
+    <symbol id="i-tv" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="m17 2-5 5-5-5"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-drive" viewBox="0 0 24 24"><path d="M22 12H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11ZM6 16h.01M10 16h.01"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></symbol>
+    <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z"/></symbol>
+  </svg>
+
+  <div class="app">
     <aside class="rail">
-      <div class="brand" title="HLS Grabber">HLS<br>GRABBER</div>
-      <nav aria-label="Навігація">
-        <button class="nav-button active" data-page="download"><span>▦</span><b>Медіатека</b></button>
-        <button class="nav-button" data-page="queue"><span>≡</span><b>Черга</b></button>
-        <button class="nav-button" data-page="history"><span>↺</span><b>Історія</b></button>
-        <button class="nav-button" data-page="diagnostics"><span>✦</span><b>Діагностика</b></button>
-        <button class="nav-button" data-page="settings"><span>⌁</span><b>Налаштування</b></button>
+      <div class="logo">
+        <span class="logo__mark"><svg><use href="#i-download"/></svg></span>
+        <span class="logo__text"><b>HLS Grabber</b><small>локальна панель</small></span>
+      </div>
+
+      <nav class="nav" aria-label="Навігація">
+        <span class="nav__pill" aria-hidden="true"></span>
+        <button class="nav__item active" data-page="library"><svg><use href="#i-library"/></svg><span>Медіатека</span></button>
+        <button class="nav__item" data-page="history"><svg><use href="#i-history"/></svg><span>Історія</span><em class="nav__badge hidden" id="history-badge"></em></button>
+        <button class="nav__item" data-page="diagnostics"><svg><use href="#i-pulse"/></svg><span>Діагностика</span></button>
+        <button class="nav__item" data-page="settings"><svg><use href="#i-sliders"/></svg><span>Налаштування</span></button>
       </nav>
-      <div class="rail__footer"><i></i><span>LOCAL</span></div>
+
+      <div class="rail__foot">
+        <button class="status-card" id="bridge-chip" type="button">
+          <i class="dot" id="bridge-dot"></i>
+          <span><b id="bridge-chip-title">Firefox</b><small id="bridge-chip-text">перевіряю…</small></span>
+        </button>
+        <div class="status-card status-card--quiet" id="server-chip">
+          <i class="dot ok" id="server-dot"></i>
+          <span><b>Сервер</b><small id="server-text">працює локально</small></span>
+        </div>
+      </div>
     </aside>
 
-    <main>
-      <section class="page active" id="download-page">
-        <header class="topbar">
-          <div><p class="eyebrow">MEDIA LIBRARY</p><h1>Медіатека</h1></div>
-          <div class="connection"><span></span>Сервер активний</div>
+    <main class="main">
+      <!-- ── Медіатека ──────────────────────────────────────────────── -->
+      <section class="page active" id="library-page">
+        <header class="page-head">
+          <div>
+            <p class="kicker">Медіатека</p>
+            <h1>Що качаємо сьогодні?</h1>
+            <p class="lede">Встав адресу серіалу: розширення знайде озвучки й посилання на всі серії. Або додай посилання вручну.</p>
+          </div>
+          <div class="segmented" id="tab-switch" role="tablist">
+            <span class="segmented__pill" aria-hidden="true"></span>
+            <button type="button" class="active" data-tab="site" role="tab"><svg><use href="#i-globe"/></svg>З сайту</button>
+            <button type="button" data-tab="manual" role="tab"><svg><use href="#i-link"/></svg>Вручну</button>
+          </div>
         </header>
 
-        <div class="workspace-grid">
-          <section class="panel composer">
-            <!-- Автоматичний обхід: даємо адресу серіалу, панель питає
-                 розширення, воно розбирає сторінку й повертає озвучки. -->
-            <section class="series-probe" id="series-probe">
-              <div class="series-probe__row">
-                <input id="probe-url" type="url" placeholder="Адреса сторінки серіалу" autocomplete="off" spellcheck="false">
-                <button type="button" id="probe-start" class="primary">Розібрати</button>
+        <div class="tab active" id="tab-site">
+          <ol class="steps">
+            <li class="step" id="step-page" data-state="active">
+              <div class="step__marker"><span>1</span></div>
+              <div class="step__body glow">
+                <div class="step__head"><h2>Сторінка серіалу</h2><span class="step__hint" id="probe-state"></span></div>
+                <div class="url-bar">
+                  <svg class="url-bar__icon"><use href="#i-search"/></svg>
+                  <input id="probe-url" type="url" placeholder="Сторінка серіалу на rezka.ag або uakino.best" autocomplete="off" spellcheck="false">
+                  <button type="button" id="probe-start" class="btn btn--primary">Розібрати<svg><use href="#i-arrow"/></svg></button>
+                </div>
+                <div class="probe-found hidden" id="probe-found"><svg><use href="#i-tv"/></svg><strong id="probe-title">—</strong></div>
+                <p class="callout callout--error hidden" id="probe-error"></p>
               </div>
-              <div class="series-probe__body hidden" id="probe-body">
-                <div class="series-probe__head"><strong id="probe-title">—</strong><span id="probe-state"></span></div>
-                <p class="series-probe__error hidden" id="probe-error"></p>
-                <div class="voice-grid" id="probe-voices"></div>
-                <div class="series-probe__actions">
-                  <button type="button" id="probe-scan" class="primary">Знайти посилання</button>
-                  <button type="button" id="probe-cancel" class="secondary hidden">Зупинити</button>
-                  <span class="hint" id="probe-progress"></span>
+            </li>
+
+            <li class="step" id="step-voices" data-state="locked">
+              <div class="step__marker"><span>2</span></div>
+              <div class="step__body glow">
+                <div class="step__head"><h2>Озвучки</h2><span class="step__hint" id="voices-hint">з'являться після розбору сторінки</span></div>
+                <div class="step__reveal" id="probe-body">
+                  <div class="voice-grid" id="probe-voices"></div>
+                  <div class="step__actions">
+                    <button type="button" id="probe-scan" class="btn btn--primary" disabled><svg><use href="#i-search"/></svg>Знайти посилання</button>
+                    <button type="button" id="probe-cancel" class="btn btn--ghost hidden">Зупинити</button>
+                    <div class="scan-meter hidden" id="scan-meter">
+                      <span class="scan-meter__bar"><i></i></span>
+                      <span id="probe-progress"></span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </section>
+            </li>
 
-            <div class="capture-bar" id="capture-bar">
-              <span class="capture-bar__pulse"></span>
-              <div><strong id="capture-title">Перевіряю Firefox…</strong><small id="capture-status">Очікую на .m3u8 із браузера</small></div>
-              <span class="capture-bar__actions"><button type="button" id="setup-bridge" class="hidden">Підключити</button><button type="button" id="toggle-captures">Вибрати</button><button type="button" id="clear-inbox" title="Очистити перехоплені посилання">×</button></span>
-            </div>
-            <section class="capture-picker hidden" id="capture-picker">
-              <div class="capture-picker__head"><strong>Вибір серій та озвучення</strong><span class="capture-picker__tools"><label class="quality-pick hidden" id="quality-pick"><span>Якість</span><select id="quality-select"></select></label><button type="button" id="select-all">Усі</button><button type="button" id="select-none">Жодного</button></span></div>
-              <div id="capture-groups"></div>
-              <small id="selection-summary">Вибрано: 0</small>
-            </section>
-            <div class="mode-tabs" role="tablist">
-              <button class="active" data-mode="movie">Фільм</button>
-              <button data-mode="series">Серіал</button>
-            </div>
-
-            <form id="download-form">
-              <div class="series-only source-tabs hidden">
-                <button type="button" class="active" data-source="direct">Прямі посилання</button>
-                <button type="button" data-source="list">Файл зі списком</button>
-              </div>
-
-              <label class="field movie-url-field"><span>HLS або відеопосилання</span><input id="url" type="url" placeholder="https://example.com/master.m3u8" autocomplete="off"></label>
-
-              <details class="advanced series-only hidden">
-                <summary>Розширене</summary>
-                <div class="advanced__body">
-                  <label class="field series-links-field hidden"><span>Посилання · одне на рядок</span><textarea id="urls" rows="6" placeholder="https://example.com/episode-01.m3u8&#10;https://example.com/episode-02.m3u8"></textarea></label>
-                  <label class="field list-field hidden"><span>Назва файлу у папці Links</span><input id="list-name" placeholder="season-1.ini"></label>
+            <li class="step" id="step-episodes" data-state="locked">
+              <div class="step__marker"><span>3</span></div>
+              <div class="step__body glow">
+                <div class="step__head"><h2>Серії</h2><span class="step__hint" id="capture-status">знайдене й перехоплене з плеєра</span></div>
+                <div class="step__reveal" id="capture-picker">
+                  <div class="picker-bar">
+                    <div class="segmented segmented--small hidden" id="quality-pick" role="radiogroup" aria-label="Якість"><span class="segmented__pill" aria-hidden="true"></span></div>
+                    <span class="picker-bar__spacer"></span>
+                    <button type="button" class="btn btn--ghost btn--small" id="select-all">Усі</button>
+                    <button type="button" class="btn btn--ghost btn--small" id="select-none">Жодної</button>
+                    <button type="button" class="icon-btn" id="clear-inbox" title="Очистити знайдене" aria-label="Очистити знайдене"><svg><use href="#i-trash"/></svg></button>
+                  </div>
+                  <div id="capture-groups" class="capture-groups"></div>
                 </div>
-              </details>
-              <label class="field"><span id="title-label">Назва фільму</span><input id="title" placeholder="Наприклад, Dune: Part Two" required></label>
+              </div>
+            </li>
+          </ol>
+        </div>
 
-              <div class="split series-only hidden">
+        <div class="tab" id="tab-manual">
+          <section class="card">
+            <div class="card__head">
+              <h2>Посилання вручну</h2>
+              <div class="segmented segmented--small" id="mode-switch">
+                <span class="segmented__pill" aria-hidden="true"></span>
+                <button type="button" class="active" data-mode="movie"><svg><use href="#i-film"/></svg>Фільм</button>
+                <button type="button" data-mode="series"><svg><use href="#i-tv"/></svg>Серіал</button>
+              </div>
+            </div>
+            <label class="field movie-url-field"><span>HLS або відеопосилання</span><input id="url" type="url" placeholder="https://example.com/master.m3u8" autocomplete="off" spellcheck="false"></label>
+            <div class="series-only hidden">
+              <div class="chips" id="source-switch">
+                <button type="button" class="chip active" data-source="direct">Посилання</button>
+                <button type="button" class="chip" data-source="list">Файл зі списком</button>
+              </div>
+              <label class="field series-links-field"><span>Одне посилання на рядок</span><textarea id="urls" rows="6" spellcheck="false" placeholder="https://example.com/episode-01.m3u8&#10;https://example.com/episode-02.m3u8"></textarea></label>
+              <label class="field list-field hidden"><span>Файл у теці «Списки посилань»</span><input id="list-name" placeholder="season-1.ini"></label>
+              <div class="split">
                 <label class="field"><span>Сезон</span><input id="season" type="number" min="1" value="1"></label>
-                <label class="field"><span>Почати з епізоду</span><input id="episode" type="number" min="1" value="1"></label>
+                <label class="field"><span>Перша серія</span><input id="episode" type="number" min="1" value="1"></label>
               </div>
-
-              <label class="field"><span>Зберегти в папку <em>необов’язково</em></span><span class="path-picker"><input id="output" placeholder="Використати папку з налаштувань"><button type="button" id="browse-output">Вибрати папку</button></span></label>
-
-              <div class="form-actions">
-                <button class="primary" id="start-button" type="submit"><span>↓</span> Почати завантаження</button>
-                <span class="hint">yt-dlp + ffmpeg</span>
-              </div>
-            </form>
-          </section>
-
-          <aside class="panel activity">
-            <div class="panel-heading"><div><p class="eyebrow">NOW PLAYING</p><h2>Активне завантаження</h2></div><span class="state" id="state">Готово</span></div>
-            <div class="empty-state" id="empty-state"><div class="signal"><i></i><i></i><i></i></div><h3>Черга порожня</h3><p>Додай посилання — прогрес з’явиться тут у реальному часі.</p></div>
-            <div class="progress-view hidden" id="progress-view">
-              <div class="media-icon">▶</div>
-              <div class="progress-copy"><p id="progress-title">—</p><span id="progress-message">Підготовка…</span></div>
-              <div class="progress-number" id="progress-number">0%</div>
-              <div class="track"><i id="progress-bar"></i></div>
-              <div class="metrics">
-                <div><span>Швидкість</span><strong id="speed">—</strong></div>
-                <div><span>Фрагменти</span><strong id="fragments">—</strong></div>
-                <div><span>Залишилось</span><strong id="eta">—</strong></div>
-              </div>
-              <div class="job-actions"><button id="pause" class="secondary">Призупинити</button><button id="cancel" class="danger">Зупинити</button></div>
             </div>
-          </aside>
+          </section>
+        </div>
+
+        <form class="card save-card" id="download-form">
+          <label class="field"><span id="title-label">Назва</span><input id="title" placeholder="Наприклад, Dune: Part Two" autocomplete="off"></label>
+          <label class="field"><span>Тека <em>необов'язково</em></span>
+            <span class="path-picker"><svg><use href="#i-folder"/></svg><input id="output" placeholder="З налаштувань"><button type="button" class="btn btn--ghost btn--small" id="browse-output">Вибрати</button></span>
+          </label>
+          <div class="field save-card__go">
+            <span class="save-card__summary" id="selection-summary">Нічого не вибрано</span>
+            <button class="btn btn--primary btn--large" id="start-button" type="submit"><svg><use href="#i-download"/></svg>Додати до черги</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ── Історія ────────────────────────────────────────────────── -->
+      <section class="page" id="history-page">
+        <header class="page-head">
+          <div><p class="kicker">Історія</p><h1>Що вже скачано</h1><p class="lede">Завершені й невдалі завдання. Невдалі можна повернути в чергу одним кліком.</p></div>
+          <div class="page-head__actions">
+            <div class="segmented segmented--small" id="history-filter">
+              <span class="segmented__pill" aria-hidden="true"></span>
+              <button type="button" class="active" data-filter="all">Усі</button>
+              <button type="button" data-filter="finished">Готові</button>
+              <button type="button" data-filter="error">Помилки</button>
+            </div>
+            <button class="btn btn--ghost" id="clear-history"><svg><use href="#i-trash"/></svg>Очистити</button>
+          </div>
+        </header>
+        <ul id="history-list" class="history"></ul>
+        <div id="history-empty" class="empty">
+          <span class="empty__icon"><svg><use href="#i-history"/></svg></span>
+          <strong>Поки що порожньо</strong>
+          <span>Тут з'являться завершені та невдалі завантаження.</span>
         </div>
       </section>
 
-      <section class="page" id="queue-page">
-        <header class="topbar"><div><p class="eyebrow">DOWNLOAD MANAGER</p><h1>Черга</h1></div><div class="queue-toolbar"><button class="secondary" id="queue-pause">Пауза</button><button class="danger" id="queue-stop">Зупинити все</button><span class="state" id="queue-state">Готово</span></div></header>
-        <section class="panel manager-panel"><div class="manager-head"><div><h2>Завдання</h2><p id="queue-summary">Черга готова</p></div></div><div id="queue-empty" class="manager-empty"><strong>Черга порожня</strong><span>Вибрані серії з медіатеки з’являться тут.</span></div><div id="queue-current" class="manager-current hidden"><div><div class="manager-title" id="queue-title">—</div><span id="queue-message">Підготовка…</span></div><strong id="queue-percent">0%</strong><div class="manager-track"><i id="queue-bar"></i></div></div><div id="queue-jobs" class="queue-jobs"></div></section>
-      </section>
-
-      <section class="page" id="history-page">
-        <header class="topbar"><div><p class="eyebrow">LOCAL ACTIVITY</p><h1>Історія</h1></div><button class="secondary" id="clear-history">Очистити</button></header>
-        <section class="panel history-panel"><div class="history-head"><span>Назва</span><span>Статус</span><span>Час</span></div><div id="history-list" class="history-list"></div><div id="history-empty" class="manager-empty"><strong>Історія порожня</strong><span>Завершені та невдалі завдання зберігатимуться локально.</span></div></section>
-      </section>
-
+      <!-- ── Діагностика ────────────────────────────────────────────── -->
       <section class="page" id="diagnostics-page">
-        <header class="topbar"><div><p class="eyebrow">SYSTEM HEALTH</p><h1>Діагностика</h1></div><button class="secondary" id="refresh-diagnostics">Перевірити знову</button></header>
-        <section class="diagnostic-hero panel">
-          <div class="health-orb" id="health-orb"><i></i></div>
-          <div><p class="eyebrow">ЗАГАЛЬНИЙ СТАН</p><h2 id="health-title">Перевіряю систему…</h2><p id="health-message">Це може зайняти кілька секунд.</p></div>
+        <header class="page-head">
+          <div><p class="kicker">Діагностика</p><h1>Стан системи</h1><p class="lede">yt-dlp, FFmpeg, міст до Firefox, теки й місце на диску.</p></div>
+          <div class="page-head__actions">
+            <button class="btn btn--ghost" id="refresh-diagnostics"><svg><use href="#i-refresh"/></svg>Перевірити знову</button>
+            <button class="btn btn--danger" id="shutdown-panel"><svg><use href="#i-power"/></svg>Вимкнути панель</button>
+          </div>
+        </header>
+
+        <section class="card health glow" id="health-card">
+          <div class="health__orb" id="health-orb"><i></i><i></i></div>
+          <div class="health__copy"><h2 id="health-title">Перевіряю систему…</h2><p id="health-message">Це займе кілька секунд.</p></div>
           <time id="diagnostic-time">—</time>
         </section>
-        <section class="panel bridge-setup-card" id="bridge-setup-card">
-          <div class="bridge-setup-icon">F</div>
-          <div class="bridge-setup-copy"><p class="eyebrow">FIREFOX BRIDGE</p><h2 id="bridge-setup-title">Підключення Firefox</h2><p id="bridge-setup-message">Grabber підготує розширення та відкриє потрібне вікно Firefox.</p><div class="bridge-steps"><span><b>1</b> Натисни кнопку праворуч</span><span><b>2</b> У Firefox вибери «Load Temporary Add-on»</span><span><b>3</b> Вибери вже виділений manifest.json</span></div><small id="bridge-manifest-path">—</small></div>
-          <div class="bridge-setup-actions"><span class="status-pill warning" id="bridge-version-pill">Не підключено</span><button class="primary" id="install-extension">Підключити Firefox</button><button class="secondary" id="copy-extension-path">Скопіювати шлях</button></div>
+
+        <section class="card bridge glow" id="bridge-setup-card">
+          <div class="bridge__icon"><svg><use href="#i-globe"/></svg></div>
+          <div class="bridge__copy">
+            <div class="bridge__title"><h2 id="bridge-setup-title">Підключення Firefox</h2><span class="pill warning" id="bridge-version-pill">Не підключено</span></div>
+            <p id="bridge-setup-message">Панель підготує розширення й відкриє потрібне вікно Firefox.</p>
+            <ol class="bridge__steps">
+              <li><b>1</b>Натисни «Підключити Firefox»</li>
+              <li><b>2</b>У Firefox вибери «Load Temporary Add-on»</li>
+              <li><b>3</b>Вибери вже виділений manifest.json</li>
+            </ol>
+            <button type="button" class="path-line" id="copy-extension-path" title="Скопіювати шлях"><svg><use href="#i-copy"/></svg><span id="bridge-manifest-path">—</span></button>
+          </div>
+          <button class="btn btn--primary" id="install-extension"><svg><use href="#i-plug"/></svg>Підключити Firefox</button>
         </section>
-        <div class="diagnostic-tools" id="diagnostic-tools">
-          <section class="panel diagnostic-card skeleton-card"></section><section class="panel diagnostic-card skeleton-card"></section>
+
+        <div class="tool-grid" id="diagnostic-tools">
+          <section class="card tool skeleton"></section><section class="card tool skeleton"></section>
         </div>
-        <div class="diagnostic-grid">
-          <section class="panel diagnostic-list"><div class="diagnostic-section-head"><div><p class="eyebrow">CONNECTIONS</p><h2>З’єднання</h2></div></div><div id="diagnostic-connections"></div></section>
-          <section class="panel diagnostic-list"><div class="diagnostic-section-head"><div><p class="eyebrow">STORAGE</p><h2>Сховище</h2></div></div><div id="diagnostic-storage"></div></section>
+
+        <div class="diag-grid">
+          <section class="card"><div class="card__head"><h2>З'єднання</h2></div><div class="rows" id="diagnostic-connections"></div></section>
+          <section class="card"><div class="card__head"><h2>Сховище</h2></div><div class="rows" id="diagnostic-storage"></div></section>
         </div>
-        <section class="managed-tools-note"><strong>Керована технічна папка</strong><span id="managed-tools-path">—</span><small>Grabber сам перевіряє контрольні суми та перемикає налаштування після успішного встановлення. Старі файли не видаляються.</small></section>
+
+        <p class="footnote"><svg><use href="#i-wrench"/></svg><span>Керовані інструменти лежать у <code id="managed-tools-path">—</code>. Завантажене звіряється з контрольною сумою видавця, старі версії не видаляються.</span></p>
       </section>
 
+      <!-- ── Налаштування ───────────────────────────────────────────── -->
       <section class="page" id="settings-page">
-        <header class="topbar"><div><p class="eyebrow">LOCAL CONFIGURATION</p><h1>Налаштування</h1></div><button class="primary compact" id="save-settings">Зберегти</button></header>
-        <div class="settings-grid">
-          <section class="panel settings-card"><p class="eyebrow">TOOLS & DIRECTORIES</p><h2>Шляхи</h2>
-            <label class="field"><span>Фільми</span><input data-config="paths.movies_dir"></label>
-            <label class="field"><span>Серіали</span><input data-config="paths.serials_dir"></label>
-            <label class="field"><span>Списки посилань</span><input data-config="paths.links_dir"></label>
-            <p class="settings-note">yt-dlp та FFmpeg тепер встановлюються й оновлюються на сторінці «Діагностика».</p>
-          </section>
-          <section class="panel settings-card"><p class="eyebrow">PERFORMANCE</p><h2>Завантаження</h2>
-            <div class="split"><label class="field"><span>Повторні спроби</span><input type="number" min="1" data-config="download.retries"></label><label class="field"><span>Затримка, сек</span><input type="number" min="0" data-config="download.retry_delay_sec"></label></div>
-            <label class="field"><span>Паралельні HLS-фрагменти</span><input type="number" min="1" data-config="yt_dlp.concurrent_fragments"></label>
-            <label class="field"><span>Контейнер</span><select data-config="yt_dlp.container"><option>mp4</option><option>mkv</option><option>webm</option></select></label>
-            <label class="field"><span>Cookies із браузера</span><select data-config="yt_dlp.cookies_from_browser"><option value="">Не використовувати</option><option>chrome</option><option>firefox</option><option>edge</option><option>brave</option></select></label>
-          </section>
+        <header class="page-head">
+          <div><p class="kicker">Налаштування</p><h1>Як і куди качати</h1><p class="lede">Зберігаються локально в config.json.</p></div>
+        </header>
+
+        <section class="card settings">
+          <div class="card__head"><h2><svg><use href="#i-folder"/></svg>Теки</h2></div>
+          <label class="setting"><span><b>Фільми</b><small>Куди падають фільми, якщо тека не вказана окремо.</small></span><input data-config="paths.movies_dir" spellcheck="false"></label>
+          <label class="setting"><span><b>Серіали</b><small>Всередині: Назва / Season 01 / Озвучка / S01E01.</small></span><input data-config="paths.serials_dir" spellcheck="false"></label>
+          <label class="setting"><span><b>Списки посилань</b><small>Тека з .ini/.txt файлами для ручного режиму.</small></span><input data-config="paths.links_dir" spellcheck="false"></label>
+        </section>
+
+        <section class="card settings">
+          <div class="card__head"><h2><svg><use href="#i-download"/></svg>Завантаження</h2></div>
+          <label class="setting"><span><b>Повторні спроби</b><small>Скільки разів повторити, якщо відмовили всі дзеркала.</small></span><input class="input--short" type="number" min="0" data-config="download.retries"></label>
+          <label class="setting"><span><b>Затримка між спробами</b><small>У секундах.</small></span><input class="input--short" type="number" min="0" data-config="download.retry_delay_sec"></label>
+          <label class="setting"><span><b>Паралельні фрагменти</b><small>Скільки шматків HLS yt-dlp качає одночасно.</small></span><input class="input--short" type="number" min="1" data-config="yt_dlp.concurrent_fragments"></label>
+          <label class="setting"><span><b>Контейнер</b><small>Формат готового файлу.</small></span><select data-config="yt_dlp.container"><option>mp4</option><option>mkv</option><option>webm</option></select></label>
+          <label class="setting"><span><b>Cookies із браузера</b><small>Для сайтів, що віддають відео лише після входу.</small></span><select data-config="yt_dlp.cookies_from_browser"><option value="">Не використовувати</option><option>chrome</option><option>firefox</option><option>edge</option><option>brave</option></select></label>
+          <p class="footnote"><svg><use href="#i-wrench"/></svg><span>yt-dlp і FFmpeg встановлюються й оновлюються на сторінці «Діагностика».</span></p>
+        </section>
+
+        <section class="card settings">
+          <div class="card__head"><h2><svg><use href="#i-globe"/></svg>Проксі</h2></div>
+          <div class="setting setting--stack">
+            <span><b>Список проксі</b><small>Лише для завантаження відео (yt-dlp). По одному в рядку: <code>host:port</code>, <code>host:port:логін:пароль</code> або <code>socks5://логін:пароль@host:port</code>. Якщо проксі не спрацював, панель бере наступний і запам'ятовує робочий. Порожньо — напряму.</small></span>
+            <textarea data-config="yt_dlp.proxies" rows="5" spellcheck="false" placeholder="1.2.3.4:8080&#10;5.6.7.8:1080:user:pass&#10;socks5://user:pass@proxy.example:1080"></textarea>
+            <div class="setting__actions">
+              <button type="button" class="btn btn--ghost btn--small" id="import-proxies"><svg><use href="#i-folder"/></svg>Імпорт з файлу</button>
+              <input type="file" id="proxy-file" accept=".txt,.csv,.list,text/plain" hidden>
+              <small id="proxy-count"></small>
+            </div>
+          </div>
+        </section>
+
+        <div class="save-bar" id="save-bar">
+          <span>Є незбережені зміни</span>
+          <button type="button" class="btn btn--ghost btn--small" id="reset-settings">Скасувати</button>
+          <button type="button" class="btn btn--primary btn--small" id="save-settings">Зберегти</button>
         </div>
       </section>
     </main>
+
+    <!-- ── Черга: завжди під рукою ────────────────────────────────────── -->
+    <aside class="dock" id="dock" aria-label="Черга">
+      <header class="dock__head">
+        <div><p class="kicker">Черга</p><h2>Завантаження</h2></div>
+        <span class="pill" id="state">Готово</span>
+        <button type="button" class="icon-btn dock__close" id="dock-close" aria-label="Згорнути чергу"><svg><use href="#i-x"/></svg></button>
+      </header>
+
+      <section class="now">
+        <div class="now__empty" id="empty-state">
+          <div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
+          <strong>Нічого не качається</strong>
+          <span>Додай серії з медіатеки: прогрес з'явиться тут.</span>
+        </div>
+        <div class="now__card glow hidden" id="progress-view">
+          <div class="now__top">
+            <span class="code" id="progress-code">—</span>
+            <span class="now__status" id="progress-status"><i></i><span id="progress-state">Качаю</span></span>
+          </div>
+          <p class="now__title" id="progress-title">—</p>
+          <p class="now__message" id="progress-message">Підготовка…</p>
+          <div class="now__big"><span id="progress-number">0</span><small>%</small></div>
+          <div class="track"><i id="progress-bar"></i></div>
+          <dl class="metrics">
+            <div><dt>Швидкість</dt><dd id="speed">—</dd></div>
+            <div><dt>Фрагменти</dt><dd id="fragments">—</dd></div>
+            <div><dt>Залишилось</dt><dd id="eta">—</dd></div>
+          </dl>
+          <div class="now__actions">
+            <button id="pause" class="btn btn--soft"><svg><use href="#i-pause"/></svg><span>Пауза</span></button>
+            <button id="cancel" class="btn btn--danger"><svg><use href="#i-stop"/></svg>Стоп</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="upnext">
+        <div class="upnext__head"><h3>Далі</h3><span id="queue-summary">порожньо</span></div>
+        <ul id="queue-jobs" class="jobs"></ul>
+        <div id="queue-empty" class="jobs-empty">У черзі нічого немає</div>
+      </section>
+
+      <footer class="dock__foot">
+        <button class="btn btn--ghost btn--small" id="queue-stop"><svg><use href="#i-stop"/></svg>Зупинити все</button>
+      </footer>
+    </aside>
   </div>
-  <dialog id="package-dialog" class="package-dialog"><form method="dialog"><div class="package-dialog__head"><div><p class="eyebrow">QUEUE PACKAGE</p><h2>Підтвердження завантаження</h2></div><button value="cancel" aria-label="Закрити">×</button></div><div class="package-summary"><div><span>Назва</span><strong id="package-title">—</strong></div><div><span>Озвучення</span><strong id="package-voice">—</strong></div><div><span>Сезон</span><strong id="package-season">—</strong></div><div><span>Серій</span><strong id="package-count">—</strong></div><div><span>Файли</span><strong id="package-files">—</strong></div><div><span>Папка</span><strong id="package-folder">—</strong></div></div><div class="package-dialog__actions"><button value="cancel" class="secondary">Назад</button><button type="button" id="confirm-package" class="primary">Додати до черги</button></div></form></dialog>
-  <div class="toast" id="toast" role="status"></div>
+
+  <!-- Міні-плеєр: на вузькому екрані черга ховається, а тут лишається
+       відсоток і назва, і клік розгортає її поверх сторінки. -->
+  <button type="button" class="mini" id="mini-player" aria-label="Відкрити чергу">
+    <span class="mini__ring" id="mini-ring"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5"/><circle cx="18" cy="18" r="15.5" pathLength="100" id="mini-arc"/></svg><svg class="mini__icon"><use href="#i-list"/></svg></span>
+    <span class="mini__text"><b id="mini-title">Черга</b><small id="mini-sub">порожня</small></span>
+  </button>
+  <div class="scrim" id="scrim"></div>
+
+  <dialog id="package-dialog" class="dialog">
+    <form method="dialog">
+      <header class="dialog__head">
+        <span class="dialog__icon"><svg><use href="#i-download"/></svg></span>
+        <div><h2>Додати до черги?</h2><p id="package-title">—</p></div>
+        <button value="cancel" class="icon-btn" aria-label="Закрити"><svg><use href="#i-x"/></svg></button>
+      </header>
+      <dl class="dialog__facts">
+        <div><dt>Озвучка</dt><dd id="package-voice">—</dd></div>
+        <div><dt>Сезон</dt><dd id="package-season">—</dd></div>
+        <div><dt>Кількість</dt><dd id="package-count">—</dd></div>
+        <div class="wide"><dt>Тека</dt><dd id="package-folder">—</dd></div>
+        <div class="wide"><dt>Файли</dt><dd id="package-files">—</dd></div>
+      </dl>
+      <footer class="dialog__foot">
+        <button value="cancel" class="btn btn--ghost">Назад</button>
+        <button type="button" id="confirm-package" class="btn btn--primary"><svg><use href="#i-check"/></svg>Додати</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+  <script src="/vendor/motion.js"></script>
   <script src="/app.js" defer></script>
 </body>
 </html>

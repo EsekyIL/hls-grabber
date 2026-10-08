@@ -22,7 +22,6 @@ type PathsConfig struct {
 }
 
 type DownloadConfig struct {
-	MaxParallel   int `json:"max_parallel"`
 	Retries       int `json:"retries"`
 	RetryDelaySec int `json:"retry_delay_sec"`
 }
@@ -36,4 +35,6 @@ type YTDLPConfig struct {
 	Continue            bool   `json:"continue"`
 	HLSUseMPEGTS        bool   `json:"hls_use_mpegts"`
 	SafeMode            bool   `json:"safe_mode"`
+	// Proxies — список проксі для yt-dlp, по одному в рядку (див. ParseProxies).
+	Proxies string `json:"proxies"`
 }

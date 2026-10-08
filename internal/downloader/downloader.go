@@ -10,12 +10,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
 )
 
 type Downloader struct {
@@ -31,6 +31,9 @@ type Downloader struct {
 	tempDir      map[string]struct{}
 	progressMu   sync.RWMutex
 	progressSink func(DownloadStats)
+	// goodProxy — проксі, через який востаннє вдалось. З нього починає
+	// наступне завантаження, щоб не перебирати щоразу мертві з голови списку.
+	goodProxy string
 }
 
 func (d *Downloader) SetProgressSink(sink func(DownloadStats)) {
@@ -494,7 +497,7 @@ func (d *Downloader) downloadToFinal(ctx context.Context, url, title, finalPath,
 
 	outputTemplate := filepath.Join(tempDir, "temp_%(id)s_%(epoch)s.%(ext)s")
 
-	if err := d.runYTDLP(ctx, url, title, outputTemplate); err != nil {
+	if err := d.downloadThroughProxies(ctx, url, title, outputTemplate, tempDir); err != nil {
 		return err
 	}
 
@@ -502,6 +505,7 @@ func (d *Downloader) downloadToFinal(ctx context.Context, url, title, finalPath,
 	if err != nil {
 		return err
 	}
+	d.remuxTransportStream(ctx, title, downloadedFile)
 
 	if finalPath == "" {
 		finalPath = filepath.Join(outputDir, filepath.Base(downloadedFile))
@@ -511,7 +515,31 @@ func (d *Downloader) downloadToFinal(ctx context.Context, url, title, finalPath,
 		return err
 	}
 
-	return moveFile(downloadedFile, finalPath)
+	target := uniquePath(finalPath)
+	if target != finalPath {
+		d.writeLog("INFO " + title + " already exists, saving as " + target)
+	}
+
+	return moveFile(downloadedFile, target)
+}
+
+// uniquePath повертає вільну назву поруч із path: «Назва (2).mp4» і далі.
+//
+// os.Rename мовчки замінює наявний файл, тож фільм із тією самою назвою
+// затирав попередній — іншу версію, інший рік, іншу озвучку. Серії сюди
+// зазвичай не доходять: їх пропускають ще до завантаження, якщо файл є.
+func uniquePath(path string) string {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return path
+	}
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	for n := 2; ; n++ {
+		candidate := fmt.Sprintf("%s (%d)%s", base, n, ext)
+		if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
+			return candidate
+		}
+	}
 }
 
 func (d *Downloader) registerTempDir(path string) {
@@ -646,8 +674,194 @@ func removeAllWithRetry(path string) error {
 	return lastErr
 }
 
-func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate string) error {
+// isMissingFragmentFile впізнає збій yt-dlp, коли фрагмента немає на сервері.
+//
+// Буває, що плейлист перелічує на шматок більше, ніж лежить на сервері
+// (uakino/ashdi: останній фрагмент серії віддає 404). Плеєр на сайті просто
+// зупиняється, а yt-dlp при паралельному завантаженні після такого збою
+// плутається й падає на іншому, цілком нормальному фрагменті:
+//
+//	[Errno 2] No such file or directory: '…\temp_index_….mp4.part-Frag265'
+//
+// Послідовно (-N 1) він той самий відсутній фрагмент пропускає з
+// попередженням і зберігає серію.
+func isMissingFragmentFile(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := err.Error()
+	return strings.Contains(text, ".part-Frag") && strings.Contains(text, "No such file or directory")
+}
+
+// downloadThroughProxies качає через проксі зі списку по черзі.
+//
+// Порожній список — пряме з'єднання, як раніше. Інакше пробуємо проксі,
+// починаючи з того, що спрацював минулого разу; не вдалось — тимчасову теку
+// чистимо й беремо наступний. Прямого з'єднання як запасного варіанта немає:
+// проксі ставлять саме тоді, коли напряму не пускає (геоблок), і тихий
+// перехід на свою адресу лише сховав би, що всі проксі мертві.
+func (d *Downloader) downloadThroughProxies(ctx context.Context, url, title, outputTemplate, tempDir string) error {
+	proxies, err := config.ParseProxies(d.cfg.YTDLP.Proxies)
+	if err != nil {
+		return err
+	}
+	if len(proxies) == 0 {
+		return d.downloadAttempt(ctx, url, title, outputTemplate, tempDir, "")
+	}
+
+	var lastErr error
+	for _, proxy := range d.proxyOrder(proxies) {
+		if lastErr != nil {
+			if err := clearDir(tempDir); err != nil {
+				return err
+			}
+		}
+		lastErr = d.downloadAttempt(ctx, url, title, outputTemplate, tempDir, proxy)
+		if lastErr == nil {
+			d.stateMu.Lock()
+			d.goodProxy = proxy
+			d.stateMu.Unlock()
+			return nil
+		}
+		if ctx.Err() != nil {
+			return lastErr
+		}
+		d.writeLog("WARN " + title + " через проксі " + config.RedactProxy(proxy) + " не вдалось: " + lastErr.Error())
+	}
+	return fmt.Errorf("не вдалось через жоден із %d проксі; остання помилка: %w", len(proxies), lastErr)
+}
+
+// proxyOrder ставить першим проксі, що спрацював минулого разу.
+func (d *Downloader) proxyOrder(proxies []string) []string {
+	d.stateMu.Lock()
+	good := d.goodProxy
+	d.stateMu.Unlock()
+	for index, proxy := range proxies {
+		if proxy == good {
+			return append(append([]string{}, proxies[index:]...), proxies[:index]...)
+		}
+	}
+	return proxies
+}
+
+// downloadAttempt — одна спроба через один проксі (або напряму).
+func (d *Downloader) downloadAttempt(ctx context.Context, url, title, outputTemplate, tempDir, proxy string) error {
+	err := d.runYTDLP(ctx, url, title, outputTemplate, 0, proxy)
+	if err == nil || ctx.Err() != nil || !isMissingFragmentFile(err) {
+		return err
+	}
+	// Паралельне завантаження спіткнулось на відсутньому фрагменті
+	// (див. isMissingFragmentFile). Послідовно yt-dlp такий фрагмент
+	// просто пропускає, тож повторюємо один раз по одному фрагменту.
+	// Тимчасову теку чистимо: недокачані шматки першої спроби з
+	// --continue могли б склеїтись не з тим.
+	d.writeLog("WARN " + title + " фрагмент відсутній на сервері, повтор без паралельного завантаження")
+	if err := clearDir(tempDir); err != nil {
+		return err
+	}
+	return d.runYTDLP(ctx, url, title, outputTemplate, 1, proxy)
+}
+
+// remuxTransportStream перепаковує MPEG-TS у контейнер, який обіцяє розширення.
+//
+// З --hls-use-mpegts («HLS MPEG-TS» у налаштуваннях) yt-dlp пише HLS одразу
+// в MPEG-TS і свого перепакування не робить, а розширення лишає з
+// --merge-output-format. Виходив «.mp4», усередині якого TS: частина
+// плеєрів і телевізорів такий файл не відкриває або не перемотує.
+//
+// Перепаковка без перекодування (-c copy): якість і тривалість ті самі,
+// займає секунди. Не вдалась — лишаємо файл як є й пишемо в журнал: TS у
+// .mp4 краще, ніж утрачена серія.
+func (d *Downloader) remuxTransportStream(ctx context.Context, title, path string) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != ".mp4" && ext != ".m4v" && ext != ".mov" && ext != ".mkv" {
+		return
+	}
+	if ok, err := isMPEGTS(path); err != nil || !ok {
+		return
+	}
+
+	output := strings.TrimSuffix(path, filepath.Ext(path)) + ".remux" + filepath.Ext(path)
+	args := []string{"-hide_banner", "-loglevel", "error", "-y", "-i", path,
+		// Лише відео й звук: таймовані ID3 і субтитри DVB з TS у MP4 не
+		// влазять, і ffmpeg через них відмовився б від усього файлу.
+		"-map", "0:v?", "-map", "0:a?", "-c", "copy"}
+	if ext != ".mkv" {
+		args = append(args, "-movflags", "+faststart")
+	}
+	args = append(args, output)
+
+	cmd := exec.CommandContext(ctx, ffmpegExecutable(d.cfg.Paths.FFmpegPath), args...)
+	configureCommand(cmd)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		_ = os.Remove(output)
+		d.writeLog("WARN " + title + " не вдалося перепакувати MPEG-TS у " + ext + ": " + strings.TrimSpace(err.Error()+" "+string(out)))
+		return
+	}
+	if err := os.Remove(path); err != nil {
+		_ = os.Remove(output)
+		d.writeLog("WARN " + title + " не вдалося замінити файл після перепакування: " + err.Error())
+		return
+	}
+	if err := os.Rename(output, path); err != nil {
+		d.writeLog("WARN " + title + " не вдалося перейменувати перепакований файл: " + err.Error())
+		return
+	}
+	d.writeLog("INFO " + title + " MPEG-TS перепаковано в " + ext)
+}
+
+// isMPEGTS упізнає транспортний потік за байтом синхронізації 0x47, що
+// повторюється кожні 188 байт.
+func isMPEGTS(path string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	buffer := make([]byte, 188*3+1)
+	if _, err := io.ReadFull(file, buffer); err != nil {
+		return false, nil
+	}
+	return buffer[0] == 0x47 && buffer[188] == 0x47 && buffer[376] == 0x47, nil
+}
+
+// ffmpegExecutable: у налаштуваннях буває і тека, і сам файл.
+func ffmpegExecutable(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "ffmpeg"
+	}
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		name := "ffmpeg"
+		if runtime.GOOS == "windows" {
+			name = "ffmpeg.exe"
+		}
+		return filepath.Join(path, name)
+	}
+	return path
+}
+
+// clearDir видаляє вміст теки, лишаючи саму теку.
+func clearDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := removeAllWithRetry(filepath.Join(dir, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fragmentsOverride > 0 замінює кількість паралельних фрагментів з налаштувань.
+// proxy — адреса для --proxy; порожня — напряму.
+func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate string, fragmentsOverride int, proxy string) error {
 	fragments := d.cfg.YTDLP.ConcurrentFragments
+	if fragmentsOverride > 0 {
+		fragments = fragmentsOverride
+	}
 	if fragments < 1 {
 		fragments = 1
 	}
@@ -672,12 +886,19 @@ func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate st
 		args = append(args, "--cookies-from-browser", d.cfg.YTDLP.CookiesFromBrowser)
 	}
 
+	if proxy != "" {
+		args = append(args, "--proxy", proxy)
+	}
+
 	args = append(
 		args,
 		"-N", fmt.Sprint(fragments),
 		"--concurrent-fragments", fmt.Sprint(fragments),
 		"--retries", fmt.Sprint(d.cfg.YTDLP.Retries),
 		"--fragment-retries", fmt.Sprint(d.cfg.YTDLP.FragmentRetries),
+		// Явно, хоч це й типова поведінка: відсутній фрагмент пропустити, а
+		// не губити через нього всю серію.
+		"--skip-unavailable-fragments",
 		"--merge-output-format", d.cfg.YTDLP.Container,
 		"-o", outputTemplate,
 		url,
@@ -702,7 +923,11 @@ func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate st
 		Message: "Preparing download",
 	})
 
-	d.writeLog("START " + title + " " + url)
+	if proxy != "" {
+		d.writeLog("START " + title + " " + url + " via " + config.RedactProxy(proxy))
+	} else {
+		d.writeLog("START " + title + " " + url)
+	}
 
 	if err := cmd.Start(); err != nil {
 		d.emitProgress(ctx, DownloadStats{
@@ -729,13 +954,21 @@ func (d *Downloader) runYTDLP(ctx context.Context, url, title, outputTemplate st
 		d.readProgressStream(ctx, stdout, title)
 	}()
 
+	var lastError string
 	go func() {
 		defer wg.Done()
-		d.copyStream(stderr, os.Stderr, title)
+		lastError = d.copyStream(stderr, os.Stderr, title)
 	}()
 
 	err = cmd.Wait()
 	wg.Wait()
+
+	// Голий «exit status 1» нічого не каже ні в черзі, ні в історії. Причину
+	// yt-dlp пише окремим рядком ERROR — її й показуємо. Через %w: черга
+	// розпізнає збій yt-dlp саме за типом помилки.
+	if err != nil && lastError != "" && ctx.Err() == nil {
+		err = fmt.Errorf("%s (%w)", lastError, err)
+	}
 
 	if err != nil {
 		d.emitProgress(ctx, DownloadStats{
@@ -806,19 +1039,47 @@ func (d *Downloader) readProgressStream(ctx context.Context, reader io.Reader, t
 		}
 
 		fmt.Fprintln(os.Stdout, line)
+		// Повтори фрагментів, «Skipping fragment» і «Total fragments» yt-dlp
+		// пише в stdout, не в stderr. Без цього рядка в журналі лишалась сама
+		// фінальна помилка, і зрозуміти, що їй передувало, було неможливо.
+		if strings.TrimSpace(line) != "" {
+			d.writeLog("YTDLP " + title + " " + line)
+		}
 	}
 }
 
-func (d *Downloader) copyStream(reader io.Reader, writer io.Writer, title string) {
+// copyStream переписує stderr yt-dlp у лог і повертає останню причину збою.
+func (d *Downloader) copyStream(reader io.Reader, writer io.Writer, title string) string {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
+	lastError := ""
 	for scanner.Scan() {
 		line := scanner.Text()
 
 		fmt.Fprintln(writer, line)
 		d.writeLog("YTDLP " + title + " " + line)
+		if reason, ok := errorReason(line); ok {
+			lastError = reason
+		}
 	}
+	return lastError
+}
+
+// errorReason дістає причину з рядка «ERROR: [generic] …: HTTP Error 403».
+func errorReason(line string) (string, bool) {
+	text := strings.TrimSpace(line)
+	if !strings.HasPrefix(text, "ERROR:") {
+		return "", false
+	}
+	text = strings.TrimSpace(strings.TrimPrefix(text, "ERROR:"))
+	// Префікс екстрактора «[generic] id:» людині нічого не дає.
+	if strings.HasPrefix(text, "[") {
+		if end := strings.Index(text, "]"); end > 0 {
+			text = strings.TrimSpace(text[end+1:])
+		}
+	}
+	return text, text != ""
 }
 
 func (d *Downloader) writeLog(message string) {
