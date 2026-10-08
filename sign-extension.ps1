@@ -70,7 +70,15 @@ if ($code -ne 0) {
   exit $code
 }
 
-$xpi = Get-ChildItem $output -Filter *.xpi | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+# Шукаємо файл саме поточної версії. Раніше бралось найсвіжіше .xpi в теці,
+# і коли новий не скачався, скрипт показував «Готово» зі старою версією.
+$version = (Get-Content (Join-Path $source "manifest.json") -Raw | ConvertFrom-Json).version
+$xpi = Get-ChildItem $output -Filter "*-$version.xpi" -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $xpi) {
+  Write-Host "web-ext завершився, але файлу версії $version у $output немає." -ForegroundColor Red
+  Write-Host "Перевір вивід вище. Якщо Mozilla ще перевіряє, підписаний файл буде на https://addons.mozilla.org/developers/addons" -ForegroundColor Yellow
+  exit 1
+}
 Write-Host ""
 Write-Host "Готово: $($xpi.FullName)" -ForegroundColor Green
 Write-Host "Перетягни цей файл у вікно Firefox і підтвердь встановлення."
