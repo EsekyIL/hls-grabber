@@ -49,6 +49,8 @@ svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-lin
 .head__text{display:grid;min-width:0;line-height:1.25}
 .head__text b{font-size:14px;font-weight:600;letter-spacing:-.01em}
 #title{overflow:hidden;color:var(--text-3);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+.head__text b{display:flex;align-items:baseline;gap:7px}
+#version{padding:1px 6px;border:1px solid var(--line-strong);border-radius:999px;color:var(--text-3);font:500 10.5px var(--mono);letter-spacing:0}
 
 .card{padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
 .card+.card,.card+.section,.section+.card{margin-top:10px}
@@ -140,7 +142,7 @@ button:disabled{opacity:.42;cursor:not-allowed}
 <body>
   <header class="head">
     <span class="mark"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg></span>
-    <span class="head__text"><b>HLS Grabber</b><span id="title">Читаю сторінку…</span></span>
+    <span class="head__text"><b>HLS Grabber <span id="version"></span></b><span id="title">Читаю сторінку…</span></span>
   </header>
 
   <div class="card grant hidden" id="grant">

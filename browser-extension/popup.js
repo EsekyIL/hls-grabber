@@ -103,6 +103,10 @@ function checkMark() {
 }
 
 async function init() {
+  // Версія з маніфесту: одразу видно, яка збірка стоїть у Firefox, і чи
+  // збігається вона з тією, що показує Діагностика панелі.
+  $("#version").textContent = "v" + chrome.runtime.getManifest().version;
+
   $("#grant").classList.toggle("hidden", await siteAccess());
 
   const config = await chrome.storage.local.get({passive: false, port: 8787});
