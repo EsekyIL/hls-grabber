@@ -105,9 +105,9 @@ function checkMark() {
 async function init() {
   $("#grant").classList.toggle("hidden", await siteAccess());
 
-  const config = await chrome.storage.local.get({enabled: true, port: 8787});
-  $("#enabled").checked = config.enabled;
-  $("#enabledSwitch").classList.toggle("on", config.enabled);
+  const config = await chrome.storage.local.get({passive: false, port: 8787});
+  $("#passive").checked = config.passive;
+  $("#passiveSwitch").classList.toggle("on", config.passive);
   $("#port").value = config.port;
 
   const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
@@ -172,17 +172,23 @@ $("#grantBtn").addEventListener("click", async () => {
   }
 });
 
-$("#enabledSwitch").addEventListener("click", event => {
-  // Клік по самому <input> усередині обробляє браузер; ловимо лише клік по
-  // обгортці, інакше стан перемкнувся б двічі й лишився тим самим.
-  if (event.target.tagName === "INPUT") return;
-  const box = $("#enabled");
-  box.checked = !box.checked;
-  $("#enabledSwitch").classList.toggle("on", box.checked);
+// «Ловити все на сторінках» зберігається одразу, без «Зберегти».
+//
+// Раніше тут був «Перехоплення»: зберігався лише кнопкою «Зберегти», а
+// «Сканувати» щоразу примусово вмикав його назад. Ще й клік по перемикачу
+// всередині <label> перемикав галочку двічі. Тепер слухаємо change самого
+// чекбокса — його label перемикає рівно раз.
+$("#passive").addEventListener("change", async () => {
+  const passive = $("#passive").checked;
+  $("#passiveSwitch").classList.toggle("on", passive);
+  await chrome.storage.local.set({passive});
+  setStatus(passive
+    ? "Розширення ловитиме плейлисти на всіх сторінках."
+    : "Плейлисти ловляться лише під час сканування.", "ok");
 });
 
 $("#save").addEventListener("click", async () => {
-  await chrome.storage.local.set({enabled: $("#enabled").checked, port: Number($("#port").value)});
+  await chrome.storage.local.set({port: Number($("#port").value)});
   setStatus("Збережено.", "ok");
   // Одразу даємо панелі знати, а не через 15 секунд. Якщо на цьому порту
   // панелі нема, фон сам знайде її на звичних і поправить число.
@@ -192,7 +198,7 @@ $("#save").addEventListener("click", async () => {
 $("#scan").addEventListener("click", async () => {
   const ids = [...document.querySelectorAll("#voices input:checked")].map(input => input.value);
   if (!ids.length) { setStatus("Вибери хоча б одне озвучення.", "warn"); return; }
-  await chrome.storage.local.set({enabled: true, port: Number($("#port").value)});
+  await chrome.storage.local.set({port: Number($("#port").value)});
 
   // Відповіді НЕ чекаємо: вона прийде за хвилини, а вікна на той час уже не
   // буде. Хід і підсумок забираємо з фону опитуванням.

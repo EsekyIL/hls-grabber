@@ -9,9 +9,17 @@ const scanContexts = new Map();
 // розширення й такі адреси не бачила зовсім.
 const PLAYLIST_RE = /\.m3u8(?:[?#]|$)|[?&](?:type|format|ext)=m3u8|\/master(?:[?#]|$)/i;
 
+// passive — «Ловити все на сторінках» у попапі. Вимкнено за замовчуванням:
+// плейлисти з трафіку йдуть у панель лише під час сканування, запущеного
+// кнопкою. Раніше перехоплення працювало завжди, і в панель потрапляло все,
+// що грало в будь-якій вкладці.
 async function settings() {
-  return chrome.storage.local.get({enabled: true, port: 8787});
+  return chrome.storage.local.get({passive: false, port: 8787});
 }
+
+// Старий прапорець «enabled» більше нічого не значить: прибираємо, щоб не
+// плутав.
+chrome.storage.local.remove("enabled").catch(() => {});
 
 // Порти, де панель шукаємо, якщо вона не відповідає на збереженому.
 //
@@ -68,8 +76,7 @@ async function sendURL(url, tabId, context) {
     chrome.tabs.sendMessage(tabId, {type: "link-captured", seq: context.seq, url}).catch(() => {});
   }
 
-  const {enabled, port} = await settings();
-  if (!enabled) return;
+  const {passive, port} = await settings();
 
   // Контекст сюди приходить готовим, знятим синхронно в момент СТАРТУ
   // запиту. Спершу він читався тут, перед самим fetch, тобто вже після
@@ -86,6 +93,10 @@ async function sendURL(url, tabId, context) {
       context = saved["ctx:" + tabId] || context;
     } catch (_) {}
   }
+
+  // Без сканування на цій вкладці — лише якщо людина сама ввімкнула «Ловити
+  // все на сторінках».
+  if (!context.seq && !passive) return;
 
   const now = Date.now();
   if (now - (sent.get(url) || 0) < 30_000) return;
@@ -119,8 +130,7 @@ async function sendURL(url, tabId, context) {
 // якостей одразу. Дедуплікація за 30 секунд тут теж ні до чого — обхід і так
 // питає кожен епізод рівно раз.
 async function sendStreams(payload) {
-  const {enabled, port} = await settings();
-  if (!enabled) return;
+  const {port} = await settings();
   try {
     await fetch(`http://127.0.0.1:${port}/api/inbox`, {
       method: "POST",
@@ -429,8 +439,7 @@ async function resolveForPage(url, commands, port) {
 
 async function pollResolves() {
   if (resolveBusy) return;
-  const {enabled, port} = await settings();
-  if (!enabled) return;
+  const {port} = await settings();
 
   let commands = [];
   try {
@@ -455,8 +464,7 @@ async function pollResolves() {
 
 async function pollCommands() {
   if (commandBusy) return;
-  const {enabled, port} = await settings();
-  if (!enabled) return;
+  const {port} = await settings();
 
   let commands = [];
   try {
