@@ -3,9 +3,9 @@
     "hls-grabber-bridge@local": {
       "updates": [
         {
-          "version": "1.13.0",
-          "update_link": "https://raw.githubusercontent.com/EsekyIL/hls-grabber/main/updates/hls-grabber-bridge-1.13.0.xpi",
-          "update_hash": "sha256:58eaa9ff362cd3bbe5e1b052e3767dc32204638f537cc11f2822ebe9ad13a1a3",
+          "version": "1.13.1",
+          "update_link": "https://raw.githubusercontent.com/EsekyIL/hls-grabber/main/updates/hls-grabber-bridge-1.13.1.xpi",
+          "update_hash": "sha256:cc1ac605e065e1f5b327557fe32123a52c03d5c0054767db884e7ccd8ecca7c2",
           "applications": {
             "gecko": {
               "strict_min_version": "121.0"
