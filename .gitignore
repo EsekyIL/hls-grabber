@@ -12,3 +12,6 @@ config.json
 
 # Підписане розширення
 build/xpi/
+
+# Ключі AMO для sign-extension.ps1
+.env
