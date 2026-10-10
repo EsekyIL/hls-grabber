@@ -120,21 +120,48 @@ function pageMetadata() {
   const voiceNode = active(".b-translator__item");
   const seasonNode = active(".b-simple_season__item");
   const episodeNode = active(".b-simple_episode__item");
+  const single = voiceNode ? null : singleVoice();
   return {
     title: document.querySelector('meta[property="og:title"]')?.content || document.title,
     pageUrl: location.href,
-    voice: nodeText(voiceNode),
-    translatorId: voiceNode?.dataset.translator_id || "",
+    voice: nodeText(voiceNode) || single?.name || "",
+    translatorId: voiceNode?.dataset.translator_id || single?.id || "",
     season: seasonNode?.dataset.tab_id || seasonNode?.textContent?.match(/\d+/)?.[0] || "",
     episode: episodeNode?.dataset.episode_id || episodeNode?.textContent?.match(/\d+/)?.[0] || ""
   };
 }
 
+// Єдина озвучка серіалу.
+//
+// Коли озвучка одна, HDRezka не малює списку .b-translator__item зовсім.
+// Каталог тоді виходив порожнім — панель не мала що вибрати, і сканувати
+// було нічого. Номер озвучки сайт однаково передає плеєру в
+// initCDNSeriesEvents(id, translator_id, …), а назву пише в таблиці
+// інформації, у рядку «В переводе» / «В перекладі».
+function singleVoice() {
+  if (document.querySelector(".b-translator__item")) return null;
+  const {translatorId} = cdnPageParams();
+  if (!translatorId) return null;
+  let name = "";
+  for (const row of document.querySelectorAll(".b-post__info tr")) {
+    const cells = row.querySelectorAll("td");
+    if (cells.length >= 2 && /в\s+перев|в\s+перекл/i.test(nodeText(cells[0]))) {
+      name = nodeText(cells[1]);
+      break;
+    }
+  }
+  return {id: translatorId, name: name || "Озвучка", active: true};
+}
+
 function catalog() {
+  const single = singleVoice();
+  const translators = single
+    ? [single]
+    : [...document.querySelectorAll(".b-translator__item")].map(node => ({id: node.dataset.translator_id || "", name: nodeText(node), active: node.classList.contains("active")})).filter(item => item.id);
   return {
     title: pageMetadata().title,
-    supported: Boolean(document.querySelector(".b-translator__item, .b-simple_episode__item")),
-    translators: [...document.querySelectorAll(".b-translator__item")].map(node => ({id: node.dataset.translator_id || "", name: nodeText(node), active: node.classList.contains("active")})).filter(item => item.id)
+    supported: translators.length > 0 || Boolean(document.querySelector(".b-simple_episode__item")),
+    translators
   };
 }
 
@@ -167,7 +194,7 @@ async function apiScan(translatorIds) {
     if (scanCancelled) break;
 
     const node = document.querySelector(`.b-translator__item[data-translator_id="${CSS.escape(translatorId)}"]`);
-    const voice = nodeText(node);
+    const voice = nodeText(node) || singleVoice()?.name || "";
 
     let list;
     try {
