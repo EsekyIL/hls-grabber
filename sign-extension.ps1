@@ -22,16 +22,64 @@ if (-not (Get-Command npx -ErrorAction SilentlyContinue)) {
 
 function Read-Secret([string]$prompt) {
   $secure = Read-Host $prompt -AsSecureString
-  return [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+  return [Runtime.InteropServices.Marshal]::PtrToStringBSTR(
     [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
 }
 
-# Введені тут ключі живуть лише до кінця скрипта (див. finally нижче).
-# Раніше вони лишались у змінних вікна PowerShell, і наступний запуск мовчки
-# брав їх звідти, навіть якщо їх уже анулювали на AMO, і падав з 401.
+# Ключі беремо по черзі: змінні середовища, потім файл .env у корені
+# репозиторію, і лише тоді питаємо. Введені вручну можна зберегти в .env,
+# щоб не вводити щоразу. .env у .gitignore: у git він не потрапляє.
+#
+# Ключі, які скрипт підставив сам (з .env чи введені), живуть лише до кінця
+# скрипта (див. finally нижче). Раніше вони лишались у змінних вікна
+# PowerShell, і наступний запуск мовчки брав їх звідти, навіть якщо їх уже
+# анулювали на AMO.
+$envFile = Join-Path $PSScriptRoot ".env"
+
+function Read-DotEnv([string]$path) {
+  $values = @{}
+  if (-not (Test-Path -LiteralPath $path)) { return $values }
+  foreach ($line in Get-Content -LiteralPath $path -Encoding UTF8) {
+    $text = $line.Trim()
+    if (-not $text -or $text.StartsWith("#")) { continue }
+    $split = $text.IndexOf("=")
+    if ($split -lt 1) { continue }
+    $name = $text.Substring(0, $split).Trim()
+    $value = $text.Substring($split + 1).Trim()
+    if ($value.Length -ge 2 -and (($value[0] -eq '"' -and $value[-1] -eq '"') -or ($value[0] -eq "'" -and $value[-1] -eq "'"))) {
+      $value = $value.Substring(1, $value.Length - 2)
+    }
+    $values[$name] = $value
+  }
+  return $values
+}
+
 $asked = $false
-if (-not $env:WEB_EXT_API_KEY) { $env:WEB_EXT_API_KEY = Read-Host "JWT issuer"; $asked = $true }
-if (-not $env:WEB_EXT_API_SECRET) { $env:WEB_EXT_API_SECRET = Read-Secret "JWT secret"; $asked = $true }
+$fromFile = $false
+$dotenv = Read-DotEnv $envFile
+if (-not $env:WEB_EXT_API_KEY -and $dotenv["WEB_EXT_API_KEY"]) { $env:WEB_EXT_API_KEY = $dotenv["WEB_EXT_API_KEY"]; $fromFile = $true }
+if (-not $env:WEB_EXT_API_SECRET -and $dotenv["WEB_EXT_API_SECRET"]) { $env:WEB_EXT_API_SECRET = $dotenv["WEB_EXT_API_SECRET"]; $fromFile = $true }
+if ($fromFile) { Write-Host "Ключі взято з .env" -ForegroundColor DarkGray }
+if (-not $env:WEB_EXT_API_KEY) { $env:WEB_EXT_API_KEY = Read-Host "JWT issuer (Видавець JWT)"; $asked = $true }
+if (-not $env:WEB_EXT_API_SECRET) { $env:WEB_EXT_API_SECRET = Read-Secret "JWT secret (JWT таємниця)"; $asked = $true }
+
+if ($asked -and $env:WEB_EXT_API_KEY -and $env:WEB_EXT_API_SECRET) {
+  $answer = Read-Host "Зберегти ключі в .env, щоб не вводити наступного разу? [Т/н]"
+  if ($answer -notmatch '^\s*(н|n)') {
+    $lines = @(
+      "# Ключі AMO для sign-extension.ps1. Файл у .gitignore, у git не потрапляє.",
+      "WEB_EXT_API_KEY=$($env:WEB_EXT_API_KEY)",
+      "WEB_EXT_API_SECRET=$($env:WEB_EXT_API_SECRET)"
+    )
+    # Решту рядків .env, якщо вони там є, не чіпаємо.
+    if (Test-Path -LiteralPath $envFile) {
+      $lines += Get-Content -LiteralPath $envFile -Encoding UTF8 | Where-Object { $_ -notmatch '^\s*(WEB_EXT_API_KEY|WEB_EXT_API_SECRET)\s*=' -and $_ -notmatch '^# Ключі AMO' }
+    }
+    Set-Content -LiteralPath $envFile -Value $lines -Encoding UTF8
+    Write-Host "Збережено в $envFile" -ForegroundColor DarkGray
+  }
+}
+$asked = $asked -or $fromFile
 
 # Порожній Enter не має доходити до AMO: інакше скрипт мовчки завершувався,
 # і незрозуміло було, підписалось щось чи ні.
@@ -64,8 +112,8 @@ if ($code -ne 0) {
   Write-Host "Підпис не вдався, подробиці вище." -ForegroundColor Red
   if (($signOutput | Out-String) -match "401|JWT") {
     Write-Host "Mozilla не прийняла ключі. Створи нові на https://addons.mozilla.org/developers/addon/api/key/" -ForegroundColor Yellow
-    Write-Host "і запусти скрипт ще раз. Якщо ключі задані в змінних середовища, спершу:" -ForegroundColor Yellow
-    Write-Host "  Remove-Item Env:WEB_EXT_API_KEY, Env:WEB_EXT_API_SECRET" -ForegroundColor Yellow
+    Write-Host "і запусти скрипт ще раз. Старі ключі спершу прибери:" -ForegroundColor Yellow
+    Write-Host "  Remove-Item .env; Remove-Item Env:WEB_EXT_API_KEY, Env:WEB_EXT_API_SECRET -ErrorAction SilentlyContinue" -ForegroundColor Yellow
   }
   exit $code
 }
