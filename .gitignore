@@ -15,3 +15,6 @@ build/xpi/
 
 # Ключі AMO для sign-extension.ps1
 .env
+
+# Службовий файл web-ext: остання відправка на AMO (у .xpi не потрапляє)
+.amo-upload-uuid
