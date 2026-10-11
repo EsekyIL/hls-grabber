@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sys/windows"
 	"hls-grabber/internal/config"
 )
 
@@ -544,13 +543,8 @@ func diagnoseDisk(path string) diskDiagnostic {
 	if result.Path == "" {
 		return result
 	}
-	pointer, err := windows.UTF16PtrFromString(result.Path)
+	free, total, err := diskSpace(result.Path)
 	if err != nil {
-		result.Message = err.Error()
-		return result
-	}
-	var free, total, totalFree uint64
-	if err := windows.GetDiskFreeSpaceEx(pointer, &free, &total, &totalFree); err != nil {
 		result.Message = err.Error()
 		return result
 	}

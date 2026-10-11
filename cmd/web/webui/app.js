@@ -1016,7 +1016,21 @@ function renderBridgeStatus(bridge) {
   const pill = $("#bridge-version-pill");
   pill.className = `pill ${outdated || !connected ? "warning" : "ok"}`;
   pill.textContent = connected ? `v${bridge.version || "?"}${outdated ? ` → v${bridge.bundledVersion}` : ""}` : `доступна v${bridge.bundledVersion}`;
-  $("#install-extension").lastChild.textContent = outdated ? "Оновити розширення" : connected ? "Перезавантажити" : "Підключити Firefox";
+  // Кроки й головна кнопка — під підписане розширення з автооновленням.
+  // Тимчасове завантаження з теки (about:debugging) лишилось запасним
+  // шляхом для розробки й показується лише без підключення.
+  const steps = outdated
+    ? ["Натисни «Відкрити about:addons»", "Шестірня ⚙ → «Перевірити наявність оновлень»", "Онови сторінку сайту (F5)"]
+    : connected ? []
+    : ["Натисни «Встановити розширення»", "У Firefox: «Дозволити», потім «Додати»", "Онови сторінку сайту (F5)"];
+  $("#bridge-steps").innerHTML = steps.map((text, index) => `<li><b>${index + 1}</b>${escapeHTML(text)}</li>`).join("");
+  $("#bridge-steps").classList.toggle("hidden", !steps.length);
+  $("#bridge-dev").classList.toggle("hidden", connected);
+  const install = $("#install-extension");
+  install.dataset.target = connected ? "addons" : "install";
+  install.querySelector("span").textContent = outdated ? "Відкрити about:addons" : connected ? "Перевірити оновлення" : "Встановити розширення";
+  install.classList.toggle("btn--primary", !connected || outdated);
+  install.classList.toggle("btn--ghost", connected && !outdated);
 }
 
 async function syncBridge() {
@@ -1040,6 +1054,21 @@ $("#copy-extension-path").addEventListener("click", async () => {
 
 $("#install-extension").addEventListener("click", async () => {
   const button = $("#install-extension");
+  const target = button.dataset.target || "install";
+  button.disabled = true;
+  try {
+    const result = await api("/api/extension/open", {method: "POST", body: JSON.stringify({target})});
+    toast(target === "install"
+      ? `Firefox відкриває розширення v${result.version}: натисни «Дозволити», потім «Додати»`
+      : "У Firefox: шестірня ⚙ → «Перевірити наявність оновлень»");
+    setTimeout(syncBridge, 5000);
+  } catch (error) { toast(error.message, "error"); }
+  finally { button.disabled = false; }
+});
+
+// Запасний шлях для розробки: тимчасове завантаження з теки.
+$("#temp-extension").addEventListener("click", async () => {
+  const button = $("#temp-extension");
   button.disabled = true;
   try {
     const result = await api("/api/extension/setup", {method: "POST"});
