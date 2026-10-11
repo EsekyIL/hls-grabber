@@ -693,14 +693,19 @@ function renderCapturePicker(selectNew = false) {
     for (const [season, seasonItems] of bySeason) {
       const seasonGroup = document.createElement("div");
       seasonGroup.className = "season-group";
-      seasonGroup.innerHTML = `<button type="button" class="season-group__title" title="Вибрати або зняти весь сезон">Сезон ${escapeHTML(season)} · ${seasonItems.length}</button><div class="episode-grid"></div>`;
+      // Фільм з API сайту: без сезону й серії, але з набором якостей.
+      // Перехоплене з плеєра без підписів лишається «Сезон ?» і «#1».
+      const isMovie = item => !item.episode && !item.season && item.streams?.length;
+      const movieGroup = seasonItems.every(isMovie);
+      const heading = movieGroup ? `Фільм · ${seasonItems.length}` : `Сезон ${season} · ${seasonItems.length}`;
+      seasonGroup.innerHTML = `<button type="button" class="season-group__title" title="Вибрати або зняти все">${escapeHTML(heading)}</button><div class="episode-grid"></div>`;
       const grid = seasonGroup.querySelector(".episode-grid");
       seasonItems.sort((a, b) => Number(digits(a.episode) || 0) - Number(digits(b.episode) || 0)).forEach((item, index) => {
         const chip = document.createElement("label");
         chip.className = "capture-item";
         chip.title = `${item.title || "HLS"}\n${item.url}`;
         const checked = selectNew || previous.has(inboxItemKey(item));
-        const label = item.episode ? `E${digits(item.episode) || item.episode}` : `#${index + 1}`;
+        const label = item.episode ? `E${digits(item.episode) || item.episode}` : isMovie(item) ? "Фільм" : `#${index + 1}`;
         chip.innerHTML = `<input type="checkbox" data-index="${item.__inboxIndex}" ${checked ? "checked" : ""}><span class="capture-item__episode">${escapeHTML(label)}</span>`;
         grid.appendChild(chip);
       });
@@ -839,6 +844,17 @@ function buildRequest() {
     if (items.length === 1) {
       return {voices, kind: "movie", request: {mode: "movie", source: "direct", title, outputDir, url: urlForItem(items[0]), mirrors: urlsForItem(items[0]).slice(1), urls: [], items: []}};
     }
+    // Фільм у кількох озвучках: окремий файл на кожну, «Назва (Озвучка)».
+    // Нумерувати їх як серії 1, 2… (як нижче) тут неправильно — це не
+    // епізоди, а той самий фільм.
+    const movieVoices = items.map(item => item.voice).filter(Boolean);
+    if (movieVoices.length === items.length && new Set(movieVoices).size === items.length) {
+      const requests = items.map(item => ({
+        mode: "movie", source: "direct", title: `${title} (${item.voice})`, outputDir,
+        url: urlForItem(item), mirrors: urlsForItem(item).slice(1), urls: [], items: []
+      }));
+      return {voices, kind: "movies", request: requests};
+    }
     // Кілька перехоплених адрес без номерів серій: нумеруємо по порядку.
     const urls = items.map(urlForItem);
     return {
@@ -876,17 +892,20 @@ $("#download-form").addEventListener("submit", event => {
     return;
   }
   const {request, kind, voices = [], preview = []} = built;
-  pendingPackage = request;
+  // Фільм у кількох озвучках — кілька заявок; решта видів — одна.
+  pendingPackage = Array.isArray(request) ? request : [request];
+  const first = pendingPackage[0];
+  const movie = kind === "movie" || kind === "movies";
   const container = config?.yt_dlp?.container || "mp4";
   const seasons = [...new Set(preview.map(item => item.season))];
-  $("#package-title").textContent = request.title;
+  $("#package-title").textContent = $("#title").value.trim() || first.title;
   $("#package-voice").textContent = voices.join(", ") || "—";
-  $("#package-season").textContent = kind === "movie" ? "Фільм" : seasons.length ? seasons.map(Number).join(", ") : "—";
-  $("#package-count").textContent = kind === "movie" ? "1 файл" : kind === "list" ? "зі списку" : `${preview.length} серій`;
+  $("#package-season").textContent = movie ? "Фільм" : seasons.length ? seasons.map(Number).join(", ") : "—";
+  $("#package-count").textContent = movie ? `${pendingPackage.length} ${pendingPackage.length === 1 ? "файл" : "файли"}` : kind === "list" ? "зі списку" : `${preview.length} серій`;
   $("#package-files").innerHTML = kind === "series"
     ? summariseFiles(preview, container).map(text => `<span class="package-line">${escapeHTML(text)}</span>`).join("")
-    : kind === "movie" ? `<span class="package-line">${escapeHTML(`${safePathPart(request.title)}.${container}`)}</span>` : "Як у файлі зі списком";
-  $("#package-folder").textContent = request.outputDir || (kind === "movie" ? config?.paths?.movies_dir : config?.paths?.serials_dir) || "Тека з налаштувань";
+    : movie ? pendingPackage.map(item => `<span class="package-line">${escapeHTML(`${safePathPart(item.title)}.${container}`)}</span>`).join("") : "Як у файлі зі списком";
+  $("#package-folder").textContent = first.outputDir || (movie ? config?.paths?.movies_dir : config?.paths?.serials_dir) || "Тека з налаштувань";
   const dialog = $("#package-dialog");
   dialog.showModal();
   animate(dialog, {opacity: [0, 1], scale: [0.94, 1], y: [12, 0]}, softSpring);
@@ -897,9 +916,13 @@ $("#confirm-package").addEventListener("click", async () => {
   const button = $("#confirm-package");
   button.disabled = true;
   try {
-    const result = await api("/api/download", {method: "POST", body: JSON.stringify(pendingPackage)});
+    let queued = 0;
+    for (const request of pendingPackage) {
+      const result = await api("/api/download", {method: "POST", body: JSON.stringify(request)});
+      queued += result.queued || 1;
+    }
     $("#package-dialog").close();
-    toast(`Додано до черги: ${result.queued || 1}`);
+    toast(`Додано до черги: ${queued}`);
     pendingPackage = null;
     await syncQueue();
     animate(window.innerWidth <= 1280 ? $("#mini-player") : $(".dock__head"), {scale: [1, 1.06, 1]}, {duration: 0.45});

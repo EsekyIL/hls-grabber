@@ -73,7 +73,7 @@ function summary(result) {
   if (!missed.length) {
     return {tone: "ok", text: result.cancelled ? `${head} Зупинено.` : head};
   }
-  const list = missed.slice(0, 6).map(item => `${item.season}×${item.episode}`).join(", ");
+  const list = missed.slice(0, 6).map(item => item.episode ? `${item.season}×${item.episode}` : item.voice || "фільм").join(", ");
   return {tone: "warn", text: `${head} Без посилання: ${missed.length} (${list}${missed.length > 6 ? "…" : ""}).`};
 }
 

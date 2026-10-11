@@ -23,13 +23,24 @@
 // Читаються з розмітки, а не з window: content script живе в ізольованому
 // світі, і змінних сторінки (cdnItemId, dle_root) там просто немає — вони
 // оголошені в її власному контексті.
+//
+// Серіал ініціалізується initCDNSeriesEvents(id, translator_id, …), фільм —
+// initCDNMoviesEvents(id, translator_id, is_camrip, is_ads, is_director, …).
+// Фільм іде тим самим ендпоінтом, але з action=get_movie і трьома
+// прапорцями озвучки; kind каже, яким шляхом іти.
 function cdnPageParams() {
   const html = document.documentElement.innerHTML;
-  const init = html.match(/initCDNSeries(?:Events)?\(\s*(\d+)\s*,\s*(\d+)/);
+  const series = html.match(/initCDNSeries(?:Events)?\(\s*(\d+)\s*,\s*(\d+)/);
+  const movie = series ? null : html.match(/initCDNMovies(?:Events)?\(\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+))?/);
+  const init = series || movie;
   const root = (html.match(/dle_root\s*=\s*['"]([^'"]*)['"]/) || [null, "/"])[1];
   return {
+    kind: series ? "series" : movie ? "movie" : "",
     itemId: init ? init[1] : "",
     translatorId: init ? init[2] : "",
+    camrip: movie?.[3] || "0",
+    ads: movie?.[4] || "0",
+    director: movie?.[5] || "0",
     favs: document.querySelector("#ctrl_favs")?.value || "",
     root: root.endsWith("/") ? root : root + "/"
   };

@@ -182,8 +182,63 @@ async function clickAndWait(node, delay) {
 const API_PACE_MIN = 120;
 const API_PACE_MAX = 3000;
 
+// Фільм: одна адреса на озвучку, без сезонів і серій.
+//
+// Клікалка фільмів не вміла зовсім — вона обходить сезони й серії, яких у
+// фільму немає. Фільм ловився лише перехопленням, поки грав у плеєрі, а
+// відколи перехоплення працює тільки під час сканування, не ловився ніяк.
+async function movieScan(translatorIds) {
+  const params = cdnPageParams();
+  const started = Date.now();
+  const missed = [];
+  let completed = 0;
+  let retries = 0;
+
+  for (const translatorId of translatorIds) {
+    if (scanCancelled) break;
+    const node = document.querySelector(`.b-translator__item[data-translator_id="${CSS.escape(translatorId)}"]`);
+    const voice = nodeText(node) || singleVoice()?.name || "";
+    // Прапорці озвучки: з її пункту в списку, а для єдиної — з ініціалізації.
+    const flags = node
+      ? {is_camrip: node.dataset.camrip || "0", is_ads: node.dataset.ads || "0", is_director: node.dataset.director || "0"}
+      : {is_camrip: params.camrip, is_ads: params.ads, is_director: params.director};
+
+    let streams = null;
+    let reason = "";
+    for (let attempt = 1; attempt <= MAX_TRIES && !streams && !scanCancelled; attempt++) {
+      if (attempt > 1) {
+        retries++;
+        await sleep(RETRY_BACKOFF[attempt - 2]);
+      }
+      try {
+        const data = await cdnApi({id: params.itemId, translator_id: translatorId, ...flags, favs: params.favs, action: "get_movie"});
+        const parsed = cdnParseStreams(data.url);
+        if (parsed.length) streams = parsed;
+        else reason = "порожня відповідь";
+      } catch (error) {
+        reason = error.message;
+      }
+    }
+
+    if (streams) {
+      completed++;
+      await chrome.runtime.sendMessage({
+        type: "cdn-found",
+        payload: {title: pageMetadata().title, pageUrl: location.href, voice, translatorId, season: "", episode: "", streams}
+      });
+    } else {
+      missed.push({voice, season: "", episode: "", reason: reason || "порожня відповідь"});
+    }
+    await chrome.runtime.sendMessage({type: "scan-progress", completed});
+    await sleep(API_PACE_MIN);
+  }
+
+  return {completed, missed, retries, via: "api-movie", cancelled: scanCancelled, elapsedMs: Date.now() - started};
+}
+
 async function apiScan(translatorIds) {
   const params = cdnPageParams();
+  if (params.kind === "movie") return movieScan(translatorIds);
   const started = Date.now();
   const missed = [];
   let completed = 0;

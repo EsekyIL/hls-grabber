@@ -401,7 +401,11 @@ func (s *server) addStreamItem(w http.ResponseWriter, request inboxRequest) {
 		// Той самий епізод тієї ж озвучки. Порівнюємо саме трійку, а не
 		// адресу: у наборі якостей адрес п'ять, і збіг за однією нічого не
 		// означав би.
-		if item.Voice == request.Voice && item.Season == request.Season && item.Episode == request.Episode &&
+		// Фільм (без сезону й серії) — та сама озвучка тієї ж сторінки: інакше
+		// повторний пошук посилань клав би той самий фільм удруге.
+		sameMovie := request.Season == "" && request.Episode == "" && item.Season == "" && item.Episode == "" &&
+			request.Voice != "" && item.Voice == request.Voice && item.PageURL == strings.TrimSpace(request.PageURL)
+		if sameMovie || item.Voice == request.Voice && item.Season == request.Season && item.Episode == request.Episode &&
 			request.Voice != "" && request.Season != "" && request.Episode != "" {
 			count := len(s.inbox)
 			s.mu.Unlock()
