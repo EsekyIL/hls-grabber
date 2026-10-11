@@ -65,7 +65,7 @@ func (s *server) currentBridgeStatus() bridgeStatusData {
 		Connected: connected, Status: "warning", Version: version,
 		BundledVersion: extensionassets.Version, Prepared: prepared,
 		ManifestPath: manifestPath, LastSeen: lastSeen,
-		Message: "Firefox-перехоплювач не підключений",
+		Message: "Розширення не відповідає: встанови його або відкрий Firefox",
 	}
 	if connected {
 		result.Status, result.Message = "ok", "Firefox-перехоплювач підключений"
@@ -73,8 +73,6 @@ func (s *server) currentBridgeStatus() bridgeStatusData {
 		if result.UpdateAvailable {
 			result.Status, result.Message = "warning", "У Firefox завантажена стара версія розширення"
 		}
-	} else if prepared {
-		result.Message = "Файли готові; завантаж розширення у Firefox"
 	}
 	return result
 }
@@ -193,4 +191,138 @@ func extensionSummary(status bridgeStatusData) string {
 		return fmt.Sprintf("Firefox %s", status.Version)
 	}
 	return status.Message
+}
+
+// ── Підписане розширення ────────────────────────────────────────────────
+//
+// Розширення ставиться з підписаного .xpi і далі оновлюється само, за
+// update_url з маніфесту. Тимчасове завантаження через about:debugging
+// лишається для розробки, але кнопки картки ведуть сюди.
+
+// extensionUpdateURL — update_url із вшитого маніфесту.
+func extensionUpdateURL() (string, error) {
+	data, err := extensionassets.Files.ReadFile("manifest.json")
+	if err != nil {
+		return "", err
+	}
+	var manifest struct {
+		Settings struct {
+			Gecko struct {
+				ID        string `json:"id"`
+				UpdateURL string `json:"update_url"`
+			} `json:"gecko"`
+		} `json:"browser_specific_settings"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return "", err
+	}
+	if manifest.Settings.Gecko.UpdateURL == "" {
+		return "", errors.New("у маніфесті розширення немає update_url")
+	}
+	return manifest.Settings.Gecko.UpdateURL, nil
+}
+
+// latestExtensionLink читає updates.json і повертає адресу найновішого .xpi.
+func latestExtensionLink(client *http.Client, updateURL, id string) (string, string, error) {
+	response, err := client.Get(updateURL)
+	if err != nil {
+		return "", "", fmt.Errorf("не вдалося прочитати список оновлень: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("список оновлень: сервер відповів %d", response.StatusCode)
+	}
+	var updates struct {
+		Addons map[string]struct {
+			Updates []struct {
+				Version    string `json:"version"`
+				UpdateLink string `json:"update_link"`
+			} `json:"updates"`
+		} `json:"addons"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&updates); err != nil {
+		return "", "", fmt.Errorf("список оновлень незрозумілий: %w", err)
+	}
+	var link, version string
+	for _, update := range updates.Addons[id].Updates {
+		if update.UpdateLink != "" && (version == "" || compareVersions(update.Version, version) > 0) {
+			link, version = update.UpdateLink, update.Version
+		}
+	}
+	if link == "" {
+		return "", "", errors.New("у списку оновлень ще немає жодної підписаної версії")
+	}
+	return link, version, nil
+}
+
+// compareVersions порівнює «1.13.2» і «1.9.0» за числами, а не як рядки.
+func compareVersions(a, b string) int {
+	left, right := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(left) || i < len(right); i++ {
+		var x, y int
+		if i < len(left) {
+			fmt.Sscan(left[i], &x)
+		}
+		if i < len(right) {
+			fmt.Sscan(right[i], &y)
+		}
+		if x != y {
+			if x > y {
+				return 1
+			}
+			return -1
+		}
+	}
+	return 0
+}
+
+func extensionID() string {
+	data, _ := extensionassets.Files.ReadFile("manifest.json")
+	var manifest struct {
+		Settings struct {
+			Gecko struct {
+				ID string `json:"id"`
+			} `json:"gecko"`
+		} `json:"browser_specific_settings"`
+	}
+	_ = json.Unmarshal(data, &manifest)
+	return manifest.Settings.Gecko.ID
+}
+
+// openInFirefox — дія картки розширення в Діагностиці:
+//
+//	addons  — about:addons, звідки «Перевірити наявність оновлень»;
+//	install — найновіший підписаний .xpi: Firefox сам запропонує встановити.
+func (s *server) openInFirefox(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Target string `json:"target"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&request)
+
+	firefox := findFirefox()
+	if firefox == "" {
+		writeError(w, http.StatusNotFound, errors.New("Firefox не знайдено"))
+		return
+	}
+
+	target, version := "about:addons", ""
+	if request.Target == "install" {
+		updateURL, err := extensionUpdateURL()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		link, latest, err := latestExtensionLink(&http.Client{Timeout: 15 * time.Second}, updateURL, extensionID())
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err)
+			return
+		}
+		target, version = link, latest
+	}
+
+	if err := exec.Command(firefox, "-new-tab", target).Start(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"opened": target, "version": version})
 }

@@ -240,6 +240,7 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/bridge/resolved", s.reportResolved)
 	mux.HandleFunc("POST /api/extension/prepare", s.prepareExtension)
 	mux.HandleFunc("POST /api/extension/setup", s.openExtensionSetup)
+	mux.HandleFunc("POST /api/extension/open", s.openInFirefox)
 }
 
 func (s *server) queueAction(w http.ResponseWriter, r *http.Request) {
@@ -560,6 +561,13 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		// Інтерфейс вшитий в .exe і змінюється з кожною збіркою. Без цього
+		// браузер міг лишити старий app.js у кеші, і після оновлення панелі
+		// людина бачила старий інтерфейс, поки не натисне Ctrl+F5. no-cache
+		// не забороняє кеш, а лише вимагає звіритись із сервером.
+		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		next.ServeHTTP(w, r)
 	})
 }

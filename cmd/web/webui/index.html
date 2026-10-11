@@ -223,14 +223,13 @@
           <div class="bridge__copy">
             <div class="bridge__title"><h2 id="bridge-setup-title">Підключення Firefox</h2><span class="pill warning" id="bridge-version-pill">Не підключено</span></div>
             <p id="bridge-setup-message">Панель підготує розширення й відкриє потрібне вікно Firefox.</p>
-            <ol class="bridge__steps">
-              <li><b>1</b>Натисни «Підключити Firefox»</li>
-              <li><b>2</b>У Firefox вибери «Load Temporary Add-on»</li>
-              <li><b>3</b>Вибери вже виділений manifest.json</li>
-            </ol>
-            <button type="button" class="path-line" id="copy-extension-path" title="Скопіювати шлях"><svg><use href="#i-copy"/></svg><span id="bridge-manifest-path">—</span></button>
+            <ol class="bridge__steps" id="bridge-steps"></ol>
+            <div class="bridge__dev" id="bridge-dev">
+              <button type="button" class="btn btn--ghost btn--small" id="temp-extension"><svg><use href="#i-wrench"/></svg>Тимчасово з теки</button>
+              <button type="button" class="path-line" id="copy-extension-path" title="Скопіювати шлях"><svg><use href="#i-copy"/></svg><span id="bridge-manifest-path">—</span></button>
+            </div>
           </div>
-          <button class="btn btn--primary" id="install-extension"><svg><use href="#i-plug"/></svg>Підключити Firefox</button>
+          <button class="btn btn--primary" id="install-extension"><svg><use href="#i-plug"/></svg><span>Встановити розширення</span></button>
         </section>
 
         <div class="tool-grid" id="diagnostic-tools">
