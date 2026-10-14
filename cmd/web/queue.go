@@ -455,6 +455,36 @@ func (q *queueManager) stopAll() error {
 	return err
 }
 
+// clearQueue зупиняє задачу, що качається, і прибирає з черги все, що ще не
+// завершилось. Історію (готові, невдалі, скасовані) не чіпає.
+//
+// Зупинена задача теж зникає, а не стає «скасованою» в історії: людина
+// чистить чергу, щоб її не бачити. Воркер, коли повернеться з runJob,
+// допише стан уже в задачу, якої в списку немає, тож у файл вона не потрапить.
+func (q *queueManager) clearQueue() (int, error) {
+	q.mu.Lock()
+	kept := make([]*queueJob, 0, len(q.jobs))
+	removed := 0
+	for _, job := range q.jobs {
+		if job.State == "pending" || job.State == "running" {
+			removed++
+			continue
+		}
+		kept = append(kept, job)
+	}
+	q.jobs = kept
+	cancelJob := q.cancelJob
+	err := q.saveLocked()
+	q.mu.Unlock()
+	if cancelJob != nil {
+		cancelJob()
+	}
+	if q.dl != nil {
+		q.dl.CancelActive()
+	}
+	return removed, err
+}
+
 func (q *queueManager) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(q.path), 0o755); err != nil {
 		return err

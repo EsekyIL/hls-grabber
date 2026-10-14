@@ -229,6 +229,14 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/queue/completed", func(w http.ResponseWriter, _ *http.Request) { writeResult(w, s.queue.clearFinished()) })
 	mux.HandleFunc("POST /api/queue/action", s.queueAction)
 	mux.HandleFunc("POST /api/queue/stop-all", func(w http.ResponseWriter, _ *http.Request) { writeResult(w, s.queue.stopAll()) })
+	mux.HandleFunc("POST /api/queue/clear", func(w http.ResponseWriter, _ *http.Request) {
+		removed, err := s.queue.clearQueue()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]int{"removed": removed})
+	})
 	mux.HandleFunc("POST /api/browse-directory", s.browseDirectory)
 	mux.HandleFunc("GET /api/diagnostics", s.diagnostics)
 	mux.HandleFunc("POST /api/diagnostics/update", s.updateDiagnosticTool)
