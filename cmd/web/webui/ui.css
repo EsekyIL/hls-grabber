@@ -816,7 +816,7 @@ input[type=number] { -moz-appearance: textfield; }
 .job__actions .icon-btn { width: 26px; height: 26px; }
 .job__actions svg { width: 14px; height: 14px; }
 .jobs-empty { padding: 16px; border: 1px dashed var(--line); border-radius: var(--r); color: var(--text-3); font-size: 13px; text-align: center; }
-.dock__foot { display: flex; justify-content: flex-end; margin-top: auto; padding-top: 6px; }
+.dock__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 6px; }
 
 /* ── Історія ───────────────────────────────────────────────────────────── */
 

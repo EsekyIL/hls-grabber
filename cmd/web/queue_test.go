@@ -219,3 +219,37 @@ func TestEnqueueKeepsRefreshData(t *testing.T) {
 		t.Fatalf("refresh data lost: %+v", job)
 	}
 }
+
+func TestClearQueueStopsRunningAndKeepsHistory(t *testing.T) {
+	started := make(chan struct{})
+	stopped := make(chan struct{})
+	q := testQueue(t, 0, func(ctx context.Context, _ *queueJob, _ string) error {
+		close(started)
+		<-ctx.Done()
+		close(stopped)
+		return ctx.Err()
+	})
+	q.jobs = []*queueJob{{ID: "done", State: "finished", Title: "Old"}}
+	if _, err := q.enqueue(downloadRequest{Mode: "series", Title: "Show", Items: []downloadItem{
+		{URL: "https://a.test/1.m3u8", Season: "1", Episode: 1},
+		{URL: "https://a.test/2.m3u8", Season: "1", Episode: 2},
+		{URL: "https://a.test/3.m3u8", Season: "1", Episode: 3},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	q.start()
+	<-started
+
+	removed, err := q.clearQueue()
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-stopped
+	if removed != 3 {
+		t.Fatalf("expected 3 removed jobs, got %d", removed)
+	}
+	jobs := q.snapshot()
+	if len(jobs) != 1 || jobs[0].ID != "done" {
+		t.Fatalf("expected only history to remain, got %+v", jobs)
+	}
+}

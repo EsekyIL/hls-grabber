@@ -1185,6 +1185,20 @@ $("#queue-stop").addEventListener("click", async () => {
   catch (error) { toast(error.message, "error"); }
 });
 
+// Очистити чергу: зупинити поточну серію й прибрати все, що чекає.
+// Історія лишається — її чистить окрема кнопка на сторінці «Історія».
+$("#queue-clear").addEventListener("click", async () => {
+  const waiting = jobs.filter(job => job.state === "pending" || job.state === "running").length;
+  if (!waiting) { toast("Черга й так порожня"); return; }
+  if (!confirm(`Зупинити поточне завантаження й прибрати з черги ${waiting} ${waiting === 1 ? "задачу" : "задач"}?`)) return;
+  try {
+    const result = await api("/api/queue/clear", {method: "POST"});
+    setPaused(false);
+    await syncQueue();
+    toast(`Чергу очищено: ${result.removed}`);
+  } catch (error) { toast(error.message, "error"); }
+});
+
 // ── Черга на вузькому екрані ─────────────────────────────────────────────
 
 function setDock(open) {
