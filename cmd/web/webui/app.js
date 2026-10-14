@@ -87,6 +87,7 @@ let knownOutcomes = null;
 const MESSAGES = {
   "Preparing download": "Готую завантаження",
   "Download complete": "Завантажено",
+  "Processing file": "Обробка файлу: перепаковую й переношу",
   "Episode already exists": "Уже є на диску",
   "Series complete": "Серіал завершено",
   "Download is already running": "Уже щось качається"
@@ -208,7 +209,7 @@ function renderProgress(stats) {
 }
 
 function renderNow() {
-  const live = lastStats && ["starting", "downloading"].includes(lastStats.status);
+  const live = lastStats && ["starting", "downloading", "processing"].includes(lastStats.status);
   const visible = Boolean(runningJob) || live;
   const card = $("#progress-view");
   const wasHidden = card.classList.contains("hidden");
@@ -226,11 +227,14 @@ function renderNow() {
 
   const job = runningJob;
   const stats = lastStats || {};
-  const percent = Math.max(0, Math.min(100, Number(stats.status === "downloading" ? stats.percent : job?.percent) || 0));
+  // Після «Download complete» і під час обробки файлу yt-dlp уже докачав —
+  // показуємо 100 %, а не останній відсоток із черги.
+  const done = stats.status === "processing" || stats.status === "finished";
+  const percent = Math.max(0, Math.min(100, Number(done ? 100 : stats.status === "downloading" ? stats.percent : job?.percent) || 0));
   $("#progress-code").textContent = job ? episodeCode(job) : (stats.title || "—");
   $("#progress-title").textContent = job?.title || stats.title || "Завантаження";
   $("#progress-message").textContent = [job?.voice, say(stats.message || job?.message)].filter(Boolean).join(" · ") || "Підготовка…";
-  $("#progress-state").textContent = paused ? "На паузі" : stats.status === "starting" ? "Готуюсь" : "Качаю";
+  $("#progress-state").textContent = paused ? "На паузі" : stats.status === "starting" ? "Готуюсь" : done ? "Обробка" : "Качаю";
   card.classList.toggle("paused", paused);
 
   const from = shownPercent;
@@ -257,6 +261,7 @@ function updateMini(active, pending) {
 
 function shownPercentTarget() {
   const stats = lastStats || {};
+  if (stats.status === "processing" || stats.status === "finished") return 100;
   return Math.max(0, Math.min(100, Number(stats.status === "downloading" ? stats.percent : runningJob?.percent) || 0));
 }
 

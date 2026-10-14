@@ -152,10 +152,10 @@ func main() {
 	port := flag.Int("port", 8787, "local server port")
 	flag.Parse()
 
-	// Збірка без консолі (-H=windowsgui) нікуди не показує ні log.Printf, ні
-	// log.Fatal. Тому повідомлення самої панелі йдуть і в download.log: файл
-	// першим, бо MultiWriter зупиняється на першому ж writer'і з помилкою, а
-	// stderr без консолі саме такий.
+	// Вікно консолі сховане (hideOwnConsole), тож повідомлення самої панелі
+	// йдуть і в download.log. Файл першим: MultiWriter зупиняється на першому
+	// ж writer'і з помилкою.
+	hideOwnConsole()
 	log.SetOutput(io.MultiWriter(panelLog{}, os.Stderr))
 	enableCrashLog()
 	log.Printf("Старт панелі, порт %d", *port)
