@@ -202,3 +202,15 @@ func TestDownloadFailsWhenAllProxiesFail(t *testing.T) {
 		t.Fatal("proxy password leaked into the log")
 	}
 }
+
+func TestParseProgressLineUsesFragmentsForHLS(t *testing.T) {
+	// Оцінка розміру завищена: за байтами вийшло б 56 %, а насправді
+	// скачано 270 фрагментів з 287.
+	stats, ok := parseProgressLine("__PROGRESS__|560|NA|1000|2097152.0|3|270|287", "S01E03")
+	if !ok {
+		t.Fatal("expected progress line to parse")
+	}
+	if stats.Percent < 94 || stats.Percent > 94.2 {
+		t.Fatalf("expected percent by fragments (~94.1), got %.2f", stats.Percent)
+	}
+}

@@ -505,6 +505,11 @@ func (d *Downloader) downloadToFinal(ctx context.Context, url, title, finalPath,
 	if err != nil {
 		return err
 	}
+	// yt-dlp уже звітував «Download complete», але файл ще треба
+	// перепакувати й перенести, і на великій серії це секунди. Без окремого
+	// стану картка весь цей час стояла з останнім відсотком і порожньою
+	// швидкістю, ніби завантаження зависло.
+	d.emitProgress(ctx, DownloadStats{Status: "processing", Title: title, Message: "Processing file", Percent: 100})
 	d.remuxTransportStream(ctx, title, downloadedFile)
 
 	if finalPath == "" {
@@ -1160,6 +1165,17 @@ func parseProgressLine(line, title string) (DownloadStats, bool) {
 
 	if total > 0 && stats.DownloadedBytes > 0 {
 		stats.Percent = (float64(stats.DownloadedBytes) / float64(total)) * 100
+		if stats.Percent > 100 {
+			stats.Percent = 100
+		}
+	}
+
+	// Для HLS розміру наперед не знає ніхто: total_bytes_estimate — оцінка з
+	// перших фрагментів, і часто завищена. Відсоток за байтами тоді доходив
+	// лише до 50–60 % і там застигав. Номер фрагмента точний, тож коли він є,
+	// рахуємо за ним.
+	if stats.FragmentCount > 0 && stats.FragmentIndex > 0 {
+		stats.Percent = float64(stats.FragmentIndex) / float64(stats.FragmentCount) * 100
 		if stats.Percent > 100 {
 			stats.Percent = 100
 		}
