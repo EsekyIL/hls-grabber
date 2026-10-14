@@ -14,8 +14,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -155,6 +157,8 @@ func main() {
 	// першим, бо MultiWriter зупиняється на першому ж writer'і з помилкою, а
 	// stderr без консолі саме такий.
 	log.SetOutput(io.MultiWriter(panelLog{}, os.Stderr))
+	enableCrashLog()
+	log.Printf("Старт панелі, порт %d", *port)
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -639,4 +643,26 @@ func (s *server) shutdown(w http.ResponseWriter, _ *http.Request) {
 		log.Printf("Панель вимкнено з інтерфейсу")
 		os.Exit(0)
 	}()
+}
+
+// enableCrashLog пише аварійні звіти Go в %TEMP%\hls-grabber\crash.log.
+//
+// Без консолі падіння панелі не видно ніде: вкладка відкрилась, а всі запити
+// падають з NetworkError, і причина зникає разом із процесом. Рантайм пише
+// звіт (необроблена паніка, fatal error, виняток Windows) у цей файл додатково
+// до stderr.
+func enableCrashLog() {
+	path := filepath.Join(filepath.Dir(config.DefaultLogFile()), "crash.log")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(file, "\n=== %s запуск панелі ===\n", time.Now().Format("2006-01-02 15:04:05"))
+	if err := debug.SetCrashOutput(file, debug.CrashOptions{}); err != nil {
+		log.Printf("crash.log не підключено: %v", err)
+	}
+	_ = file.Close()
 }
